@@ -97,7 +97,7 @@ Render 读取 `render.yaml`，按免费计划创建 Web Service。
 - 15×15 棋盘，自由规则（无禁手），黑先，横竖斜任意方向连五即胜；
 - 单房间：前两个连接为黑/白，之后为观众；
 - 重新开始：需**双方都点击确认**后才重开并交换黑白；先点击的一方等待对方确认（再点一次可取消），另一方的按钮会显示「对方想重新开始，点击同意」；
-- 悔棋：任意一方可撤销最后一手（简化规则：立即生效、无需对方确认）；轮次回到落子方，终局后悔棋会恢复对局。
+- 悔棋：只能撤销**自己**刚下的一手（对方下的最后一手不能替对方悔），立即生效、无需确认；轮次回到落子方，终局后悔棋会恢复对局；被悔掉的棋子位置会以虚影标记，直到下一手落下。
 
 客户端 → 服务端（WebSocket JSON）：
 
@@ -109,7 +109,7 @@ Render 读取 `render.yaml`，按免费计划创建 Web Service。
 ```
 
 服务端 → 客户端：`hello`（分到角色）、`state`（完整快照）、`undo`（撤销事件，`color` 为被撤销落子的一方）、`error`、`pong`。
-`state` 字段：`board`、`current`、`over`、`winner`、`line`、`lastMove`、`you`、`players`、`connected`、`restartVotes`（双方重新开始确认状态）。
+`state` 字段：`board`、`current`、`over`、`winner`、`line`、`lastMove`、`you`、`players`、`connected`、`restartVotes`（双方重新开始确认状态）、`undoGhost`（被悔棋子的虚影位置）、`canUndo`（当前是否能悔自己的最后一手）。
 
 ## 局域网试玩（可选）
 

@@ -259,6 +259,9 @@ function draw() {
     ctx.stroke();
   }
 
+  // 悔棋虚影（被悔掉棋子的位置）
+  if (state.undoGhost && !state.over) drawUndoGhost();
+
   // 活三 / 冲四 连线提示（盖在棋子上方，向外延伸半格）
   if (!state.over) drawThreatLines();
 
@@ -293,6 +296,38 @@ function showToast(text) {
   toastEl.classList.remove("show");
   void toastEl.offsetWidth; // 强制重排以重新触发动画
   toastEl.classList.add("show");
+}
+
+// ------------------------------ 悔棋虚影 ------------------------------
+// 被悔掉的棋子位置：半透明棋子 + 橙色虚线环
+function drawUndoGhost() {
+  const g = state.undoGhost;
+  const x = pos(g.col), y = pos(g.row), rad = GAP * 0.42;
+  ctx.save();
+  ctx.globalAlpha = 0.3;
+  const grad = ctx.createRadialGradient(x - rad * 0.35, y - rad * 0.35, rad * 0.1, x, y, rad);
+  if (g.color === 1) {
+    grad.addColorStop(0, "#5a5a5a");
+    grad.addColorStop(1, "#111111");
+  } else {
+    grad.addColorStop(0, "#ffffff");
+    grad.addColorStop(0.7, "#e8e8e8");
+    grad.addColorStop(1, "#bdbdbd");
+  }
+  ctx.beginPath();
+  ctx.arc(x, y, rad, 0, Math.PI * 2);
+  ctx.fillStyle = grad;
+  ctx.fill();
+  ctx.restore();
+
+  ctx.save();
+  ctx.setLineDash([5, 4]);
+  ctx.strokeStyle = "rgba(255, 170, 60, .95)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(x, y, rad + 3, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
 }
 
 // ------------------------------ 威胁连线提示 ------------------------------
@@ -405,9 +440,9 @@ function updateUI() {
       ? "你是观众，正在观战。"
       : "等待另一位玩家加入…（再开一个窗口即可对弈）";
   } else if (s.over) {
-    if (s.winner === 0) text = "平局！可点「悔棋」撤销最后一手，或「重新开始」再来一局。";
+    if (s.winner === 0) text = "平局！点「重新开始」再来一局。";
     else if (s.winner === s.you) text = "你赢了！可点「悔棋」继续对局，或「重新开始」再来一局。";
-    else text = "你输了。可点「悔棋」撤销最后一手，或「重新开始」再来一局。";
+    else text = "你输了。点「重新开始」再来一局。";
   } else if (!(s.players.black && s.players.white)) {
     text = "等待另一位玩家加入…（把地址发给对方，或再开一个窗口）";
   } else if (s.current === s.you) {
@@ -422,7 +457,7 @@ function updateUI() {
     s.over && s.winner !== null && s.winner !== 0 && s.winner !== s.you
   );
   restartBtn.disabled = !s.you;
-  undoBtn.disabled = !s.you || !s.lastMove;
+  undoBtn.disabled = !s.you || !s.canUndo;
 
   // 重新开始需双方确认：显示对方请求 / 自己的等待状态
   const votes = s.restartVotes || { black: false, white: false };

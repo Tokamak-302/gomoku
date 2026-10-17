@@ -225,25 +225,37 @@ def test_win(p1, p2):
 
 
 def test_undo(p1, p2):
-    # 悔棋：撤销黑棋刚才的获胜落子 (0,4)，恢复上一手白棋 (1,3)
+    # 白棋不能悔黑棋刚下的获胜棋
+    p2.send({"type": "undo"})
+    expect_error(p2, "只能悔自己")
+
+    # 黑棋可以悔自己的最后一手
     p1.send({"type": "undo"})
     ev1 = expect(p1, "undo")
     ev2 = expect(p2, "undo")
-    assert ev1["color"] == 1, "悔棋事件应记录被撤销的一方: %r" % ev1
-    assert ev2["color"] == 1
+    assert ev1["color"] == 1 and ev2["color"] == 1
+    assert ev1.get("row") == 0 and ev1.get("col") == 4, "悔棋事件应带被悔位置: %r" % ev1
     s1 = expect(p1, "state")
-    expect(p2, "state")
+    s2 = expect(p2, "state")
     assert s1["board"][0][4] == 0, "悔棋应移除最后一枚棋子"
     assert s1["over"] is False and s1["winner"] is None, "悔棋后对局应恢复进行中"
     assert s1["current"] == 1, "悔棋后应重新轮到黑棋"
     assert s1["lastMove"] == [1, 3], "悔棋后最后一步应回退到白棋 (1,3): %r" % s1["lastMove"]
+    assert s1["undoGhost"] == {"row": 0, "col": 4, "color": 1}, "应标记被悔棋子的虚影位置: %r" % s1["undoGhost"]
+    assert s1["canUndo"] is False, "黑棋不能悔白棋的最后一手"
+    assert s2["canUndo"] is True, "白棋可以悔自己的最后一手"
+
+    # 黑棋尝试悔白棋的棋 → 被拒绝
+    p1.send({"type": "undo"})
+    expect_error(p1, "只能悔自己")
 
     # 重新落子恢复胜局，便于后续重新开始测试
     p1.send({"type": "move", "row": 0, "col": 4})
     s1 = expect(p1, "state")
     expect(p2, "state")
     assert s1["over"] is True and s1["winner"] == 1, "重新落子后应再次判定黑棋获胜"
-    print("[5/6] 悔棋与恢复                 PASS")
+    assert s1["undoGhost"] is None, "落子后虚影应清除"
+    print("[5/6] 悔棋（仅限自己的棋）与虚影   PASS")
 
 
 def test_restart(p1, p2):

@@ -117,6 +117,7 @@ class Room:
         self.last_move = None
         self.history = []  # [(row, col, color), ...]
         self.restart_votes = {1: False, 2: False}  # 重新开始需双方确认
+        self.undo_ghost = None  # 被悔掉棋子的位置 {row, col, color}
 
     def reset(self, swap=False):
         if swap and self.players[1] is not None and self.players[2] is not None:
@@ -131,6 +132,7 @@ class Room:
         self.last_move = None
         self.history = []
         self.restart_votes = {1: False, 2: False}
+        self.undo_ghost = None
 
     def state_for(self, conn):
         return {
@@ -151,6 +153,12 @@ class Room:
                 "black": self.restart_votes[1],
                 "white": self.restart_votes[2],
             },
+            "undoGhost": self.undo_ghost,
+            "canUndo": bool(
+                conn.color in (1, 2)
+                and self.history
+                and self.history[-1][2] == conn.color
+            ),
         }
 
 
@@ -304,6 +312,7 @@ def handle_move(conn, msg):
 
     room.board[row][col] = conn.color
     room.history.append((row, col, conn.color))
+    room.undo_ghost = None  # 新的落子清除悔棋虚影
     room.last_move = [row, col]
     line = check_win(room.board, row, col, conn.color)
     if line:
@@ -349,7 +358,7 @@ def handle_restart(conn):
 
 
 def handle_undo(conn):
-    """悔棋：撤销最后一手（简化规则，立即生效，无需对方确认）。"""
+    """悔棋：只能撤销自己刚下的一手；被悔掉的位置用虚影标记。"""
     room = conn.room
     if conn.color == 0:
         conn.send({"type": "error", "message": "观众不能悔棋"})
@@ -360,6 +369,9 @@ def handle_undo(conn):
     if not room.history:
         conn.send({"type": "error", "message": "还没有可以悔的棋子"})
         return
+    if room.history[-1][2] != conn.color:
+        conn.send({"type": "error", "message": "只能悔自己下过的棋"})
+        return
 
     row, col, color = room.history.pop()
     room.board[row][col] = 0
@@ -367,6 +379,7 @@ def handle_undo(conn):
     room.over = False
     room.winner = None
     room.line = []
+    room.undo_ghost = {"row": row, "col": col, "color": color}
     if room.history:
         last = room.history[-1]
         room.last_move = [last[0], last[1]]
@@ -376,7 +389,7 @@ def handle_undo(conn):
     log(f"[悔棋] 撤销 {COLOR_NAMES[color]} 在 ({row + 1}, {col + 1}) 的落子")
     for client in room.clients:
         if client.alive:
-            client.send({"type": "undo", "color": color})
+            client.send({"type": "undo", "color": color, "row": row, "col": col})
     broadcast_locked(room)
 
 
