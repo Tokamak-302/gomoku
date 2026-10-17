@@ -9,7 +9,7 @@
 |---|---|
 | `server.py` | HTTP 页面 + WebSocket 联机服务 + 游戏逻辑（服务端权威） |
 | `index.html` | Canvas 棋盘前端，浏览器打开即用 |
-| `assets/sounds/` | 落子 / 胜利音效（Kenney CC0 素材，浏览器直接播放 .ogg） |
+| `assets/sounds/` | 落子 / 胜利音效（Kenney CC0）与自制的威胁提示音 `threat.wav` |
 | `assets/threats.js` | 活三 / 冲四威胁检测（纯函数，前端与单测共用） |
 | `test_client.py` | 联机自测客户端，可测本机或线上地址 |
 | `requirements.txt` | 空依赖声明（供 Render 构建步骤使用） |
@@ -48,17 +48,19 @@ py -3 gomoku/test_client.py --url https://你的应用.onrender.com
 | 场景 | 文件 | 来源 |
 |---|---|---|
 | 落子 | `assets/sounds/place.ogg` | [Kenney Interface Sounds](https://kenney.nl/assets/interface-sounds)（drop_002） |
-| 活三/冲四提示 | `assets/sounds/threat.ogg` | [Kenney Interface Sounds](https://kenney.nl/assets/interface-sounds)（confirmation_002） |
+| 活三/冲四提示 | `assets/sounds/threat.wav` | 本项目自制合成音（A5→D6 两声清脆铃铛，模仿"钓鱼上钩"的提示感，零版权风险） |
 | 胜利 | `assets/sounds/win.ogg` | [Kenney Music Jingles](https://kenney.nl/assets/music-jingles)（jingles_STEEL01，钢鼓风格更欢快；仅获胜方播放） |
 
-两个素材包均为 **CC0 1.0（公有领域）**，可自由商用、无需署名。
+两个 Kenney 素材包均为 **CC0 1.0（公有领域）**，可自由商用、无需署名；`threat.wav` 为本项目合成的原创音效。
+
+> 版权说明：《星露谷》的「上钩了」音效属于游戏版权素材，不能直接提取并放入公开仓库/线上站点使用。若你想本地自用替换，可把获得授权的音频命名为 `threat.wav`（或 `threat.ogg` 并同步修改 `index.html` 中的路径）替换即可。
 
 棋盘提示（对局进行中）：
 
 - **活三**：蓝色粗虚线连接三颗棋子（连续 3 子两端空且可成活四；或**跳活三** ●●_● / ●_●●：4 格内 3 子夹 1 个中间空位、两端外侧为空）；
 - **冲四**：橙色粗实线连接四颗棋子（任意 5 格窗口内 4 枚同色 + 1 空，含跳四、活四）；
 - 连线绘制在棋子上方、带深色衬底，并向两端各延伸半格，便于一眼识别；
-- 任意一方落子**新形成**活三或冲四时，播放统一的提示音（threat.ogg）；
+- 任意一方落子**新形成**活三或冲四时，播放统一的提示音（`threat.wav`），并在棋盘上方弹出「🎣 上钩了！」文字动画；
 - **胜利**：金色粗线连接连成五子的棋子。
 
 说明：活四按冲四的橙色线条提示；三子两端各被堵死时不算活三。

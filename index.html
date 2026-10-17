@@ -22,9 +22,23 @@
   .conn.ok { background: #173527; color: #5fd18b; }
   .conn.bad { background: #3a1f22; color: #ff8a80; }
   main { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
-  .board-wrap { flex: 1 1 560px; display: flex; justify-content: center; min-width: 300px; }
+  .board-wrap { position: relative; flex: 1 1 560px; display: flex; justify-content: center; min-width: 300px; }
   canvas { width: 100%; max-width: 640px; height: auto; display: block;
            border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.45); cursor: pointer; }
+  .toast {
+    position: absolute; left: 50%; top: 14%; transform: translate(-50%, 0);
+    font-size: 38px; font-weight: 800; letter-spacing: 4px;
+    color: #ffd34d; text-shadow: 0 2px 0 #7a4a00, 0 0 18px rgba(255, 210, 80, .9);
+    opacity: 0; pointer-events: none; white-space: nowrap;
+  }
+  .toast.show { animation: toastPop 1.3s ease-out forwards; }
+  @keyframes toastPop {
+    0%   { opacity: 0; transform: translate(-50%, 14px) scale(.4) rotate(-6deg); }
+    18%  { opacity: 1; transform: translate(-50%, 0) scale(1.12) rotate(2deg); }
+    32%  { transform: translate(-50%, 0) scale(1) rotate(0deg); }
+    70%  { opacity: 1; transform: translate(-50%, -8px) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -30px) scale(.96); }
+  }
   .panel { flex: 0 1 300px; min-width: 260px; display: flex; flex-direction: column; gap: 14px; }
   .players { display: flex; flex-direction: column; gap: 8px; }
   .player { display: flex; align-items: center; gap: 10px; padding: 10px 14px;
@@ -54,7 +68,10 @@
     <div class="conn" id="conn">连接中…</div>
   </header>
   <main>
-    <div class="board-wrap"><canvas id="board"></canvas></div>
+    <div class="board-wrap">
+      <canvas id="board"></canvas>
+      <div class="toast" id="toast">🎣 上钩了！</div>
+    </div>
     <aside class="panel">
       <div class="players">
         <div class="player"><span class="dot black"></span>黑棋<span class="tag" id="tag-black"></span></div>
@@ -101,7 +118,7 @@ const placeSound = new Audio("assets/sounds/place.ogg");
 placeSound.preload = "auto";
 const winSound = new Audio("assets/sounds/win.ogg");
 winSound.preload = "auto";
-const threatSound = new Audio("assets/sounds/threat.ogg");
+const threatSound = new Audio("assets/sounds/threat.wav");
 threatSound.preload = "auto";
 
 // ------------------------------ 客户端状态 ------------------------------
@@ -264,6 +281,16 @@ function playSound(audio, delayMs) {
       /* 忽略 */
     }
   }, delayMs || 0);
+}
+
+// ------------------------------ 「上钩了！」文字动画 ------------------------------
+const toastEl = document.getElementById("toast");
+
+function showToast(text) {
+  toastEl.textContent = text;
+  toastEl.classList.remove("show");
+  void toastEl.offsetWidth; // 强制重排以重新触发动画
+  toastEl.classList.add("show");
 }
 
 // ------------------------------ 威胁连线提示 ------------------------------
@@ -451,7 +478,10 @@ function connect() {
                 return p[0] === last[0] && p[1] === last[1];
               });
             });
-            if (created) playSound(threatSound, 180);
+            if (created) {
+              playSound(threatSound, 180);
+              showToast("🎣 上钩了！");
+            }
           }
         }
       }
