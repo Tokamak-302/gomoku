@@ -421,7 +421,8 @@ function connect() {
       if (!firstState) {
         if (msg.lastMove && moveKey !== prevMoveKey) playSound(placeSound);
         if (msg.over && !prevOver) {
-          if (msg.winner) playSound(winSound, 250);
+          // 只有获胜方播放胜利音效；输棋一方与观众不播放任何结束音效
+          if (msg.winner && msg.winner === msg.you) playSound(winSound, 250);
         } else if (msg.lastMove && moveKey !== prevMoveKey) {
           // 这一手是否新形成了活三或冲四（提示音共用）
           const last = msg.lastMove;

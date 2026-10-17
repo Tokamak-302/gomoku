@@ -49,7 +49,7 @@ py -3 gomoku/test_client.py --url https://你的应用.onrender.com
 |---|---|---|
 | 落子 | `assets/sounds/place.ogg` | [Kenney Interface Sounds](https://kenney.nl/assets/interface-sounds)（drop_002） |
 | 活三/冲四提示 | `assets/sounds/threat.ogg` | [Kenney Interface Sounds](https://kenney.nl/assets/interface-sounds)（confirmation_002） |
-| 胜利 | `assets/sounds/win.ogg` | [Kenney Music Jingles](https://kenney.nl/assets/music-jingles)（jingles_STEEL01，钢鼓风格更欢快） |
+| 胜利 | `assets/sounds/win.ogg` | [Kenney Music Jingles](https://kenney.nl/assets/music-jingles)（jingles_STEEL01，钢鼓风格更欢快；仅获胜方播放） |
 
 两个素材包均为 **CC0 1.0（公有领域）**，可自由商用、无需署名。
 
