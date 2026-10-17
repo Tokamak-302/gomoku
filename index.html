@@ -40,6 +40,10 @@
            background: #3d6fd4; color: #fff; font-weight: 600; }
   button:disabled { opacity: .45; cursor: not-allowed; }
   button:hover:not(:disabled) { background: #4a80ec; }
+  button.secondary { background: #2a3140; color: #cfd6e2; }
+  button.secondary:hover:not(:disabled) { background: #364050; }
+  .actions { display: flex; gap: 8px; }
+  .actions button { flex: 1; }
   .hint { color: #8f9bb0; font-size: 12px; line-height: 1.7; margin: 0; }
 </style>
 </head>
@@ -57,7 +61,10 @@
         <div class="player"><span class="dot white"></span>白棋<span class="tag" id="tag-white"></span></div>
       </div>
       <div class="status" id="status">正在连接服务器…</div>
-      <button id="restart" disabled>重新开始（双方交换黑白）</button>
+      <div class="actions">
+        <button id="undo" class="secondary" disabled>悔棋</button>
+        <button id="restart" disabled>重新开始（双方交换黑白）</button>
+      </div>
       <p class="hint">
         本机验证：<b>再打开一个浏览器窗口</b>访问同一地址，两个窗口即可对弈。<br>
         黑棋先行，任意一方先连成五子获胜。
@@ -88,6 +95,7 @@ const statusEl = document.getElementById("status");
 const tagBlack = document.getElementById("tag-black");
 const tagWhite = document.getElementById("tag-white");
 const restartBtn = document.getElementById("restart");
+const undoBtn = document.getElementById("undo");
 
 const placeSound = new Audio("assets/sounds/place.ogg");
 placeSound.preload = "auto";
@@ -111,6 +119,8 @@ let flashTimer = null;
 let prevLastMove = null;
 let prevOver = false;
 let firstState = true;
+let skipSoundOnce = false;
+let undoNotice = null;
 
 // ------------------------------ 绘制 ------------------------------
 function pos(i) { return MARGIN + i * GAP; }
@@ -348,6 +358,12 @@ restartBtn.addEventListener("click", () => {
   }
 });
 
+undoBtn.addEventListener("click", () => {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "undo" }));
+  }
+});
+
 // ------------------------------ 状态栏 ------------------------------
 function updateUI() {
   const s = state;
@@ -360,9 +376,9 @@ function updateUI() {
       ? "你是观众，正在观战。"
       : "等待另一位玩家加入…（再开一个窗口即可对弈）";
   } else if (s.over) {
-    if (s.winner === 0) text = "平局！点「重新开始」再来一局。";
-    else if (s.winner === s.you) text = "你赢了！点「重新开始」再来一局。";
-    else text = "你输了。点「重新开始」再来一局。";
+    if (s.winner === 0) text = "平局！可点「悔棋」撤销最后一手，或「重新开始」再来一局。";
+    else if (s.winner === s.you) text = "你赢了！可点「悔棋」继续对局，或「重新开始」再来一局。";
+    else text = "你输了。可点「悔棋」撤销最后一手，或「重新开始」再来一局。";
   } else if (!(s.players.black && s.players.white)) {
     text = "等待另一位玩家加入…（把地址发给对方，或再开一个窗口）";
   } else if (s.current === s.you) {
@@ -377,6 +393,7 @@ function updateUI() {
     s.over && s.winner !== null && s.winner !== 0 && s.winner !== s.you
   );
   restartBtn.disabled = !s.you;
+  undoBtn.disabled = !s.you || !s.lastMove;
 }
 
 function setConn(text, cls) {
@@ -384,10 +401,10 @@ function setConn(text, cls) {
   connEl.className = "conn" + (cls ? " " + cls : "");
 }
 
-function flash(text) {
+function flash(text, isError) {
   if (flashTimer) clearTimeout(flashTimer);
   statusEl.textContent = text;
-  statusEl.classList.add("bad");
+  statusEl.classList.toggle("bad", isError !== false);
   flashTimer = setTimeout(() => { flashTimer = null; updateUI(); }, 1800);
 }
 
@@ -419,19 +436,23 @@ function connect() {
       const moveKey = msg.lastMove ? msg.lastMove.join(",") : "";
       const prevMoveKey = prevLastMove ? prevLastMove.join(",") : "";
       if (!firstState) {
-        if (msg.lastMove && moveKey !== prevMoveKey) playSound(placeSound);
-        if (msg.over && !prevOver) {
-          // 只有获胜方播放胜利音效；输棋一方与观众不播放任何结束音效
-          if (msg.winner && msg.winner === msg.you) playSound(winSound, 250);
-        } else if (msg.lastMove && moveKey !== prevMoveKey) {
-          // 这一手是否新形成了活三或冲四（提示音共用）
-          const last = msg.lastMove;
-          const created = findThreats(msg.board, N).some(function (th) {
-            return th.cells.some(function (p) {
-              return p[0] === last[0] && p[1] === last[1];
+        if (skipSoundOnce) {
+          skipSoundOnce = false;
+        } else {
+          if (msg.lastMove && moveKey !== prevMoveKey) playSound(placeSound);
+          if (msg.over && !prevOver) {
+            // 只有获胜方播放胜利音效；输棋一方与观众不播放任何结束音效
+            if (msg.winner && msg.winner === msg.you) playSound(winSound, 250);
+          } else if (msg.lastMove && moveKey !== prevMoveKey) {
+            // 这一手是否新形成了活三或冲四（提示音共用）
+            const last = msg.lastMove;
+            const created = findThreats(msg.board, N).some(function (th) {
+              return th.cells.some(function (p) {
+                return p[0] === last[0] && p[1] === last[1];
+              });
             });
-          });
-          if (created) playSound(threatSound, 180);
+            if (created) playSound(threatSound, 180);
+          }
         }
       }
       firstState = false;
@@ -440,6 +461,16 @@ function connect() {
       state = msg;
       draw();
       updateUI();
+      if (undoNotice) {
+        const text = undoNotice;
+        undoNotice = null;
+        flash(text, false);
+      }
+    } else if (msg.type === "undo") {
+      skipSoundOnce = true;
+      undoNotice = (msg.color === state.you)
+        ? "你已悔棋，撤销了最后一手"
+        : "对方悔棋，撤销了最后一手";
     } else if (msg.type === "error") {
       flash(msg.message || "出错了");
     }

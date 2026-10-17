@@ -166,7 +166,7 @@ def test_http_page():
         html = resp.read().decode("utf-8")
         assert resp.status == 200, "HTTP 状态码异常: %r" % resp.status
     assert "五子棋" in html, "页面内容不是五子棋页面"
-    print("[1/5] HTTP 页面可访问          PASS")
+    print("[1/6] HTTP 页面可访问          PASS")
 
 
 def test_join_and_colors():
@@ -185,14 +185,14 @@ def test_join_and_colors():
     assert st1["players"] == {"black": True, "white": True}
     assert st2["you"] == 2 and st1["you"] == 1
     assert sum(sum(row) for row in st1["board"]) == 0, "开局棋盘应为空"
-    print("[2/5] 双客户端连接、黑白分配    PASS")
+    print("[2/6] 双客户端连接、黑白分配    PASS")
     return p1, p2
 
 
 def test_out_of_turn(p2):
     p2.send({"type": "move", "row": 7, "col": 7})  # 白棋抢先落子
     expect_error(p2, "轮")
-    print("[3/5] 非本回合落子被拒绝        PASS")
+    print("[3/6] 非本回合落子被拒绝        PASS")
 
 
 def test_win(p1, p2):
@@ -221,7 +221,29 @@ def test_win(p1, p2):
     cells = {(r, c) for r, c in s1["line"]}
     for i in range(5):
         assert (0, i) in cells, "获胜连线缺少 (0, %d)" % i
-    print("[4/5] 五连胜利判定与连线        PASS")
+    print("[4/6] 五连胜利判定与连线        PASS")
+
+
+def test_undo(p1, p2):
+    # 悔棋：撤销黑棋刚才的获胜落子 (0,4)，恢复上一手白棋 (1,3)
+    p1.send({"type": "undo"})
+    ev1 = expect(p1, "undo")
+    ev2 = expect(p2, "undo")
+    assert ev1["color"] == 1, "悔棋事件应记录被撤销的一方: %r" % ev1
+    assert ev2["color"] == 1
+    s1 = expect(p1, "state")
+    expect(p2, "state")
+    assert s1["board"][0][4] == 0, "悔棋应移除最后一枚棋子"
+    assert s1["over"] is False and s1["winner"] is None, "悔棋后对局应恢复进行中"
+    assert s1["current"] == 1, "悔棋后应重新轮到黑棋"
+    assert s1["lastMove"] == [1, 3], "悔棋后最后一步应回退到白棋 (1,3): %r" % s1["lastMove"]
+
+    # 重新落子恢复胜局，便于后续重新开始测试
+    p1.send({"type": "move", "row": 0, "col": 4})
+    s1 = expect(p1, "state")
+    expect(p2, "state")
+    assert s1["over"] is True and s1["winner"] == 1, "重新落子后应再次判定黑棋获胜"
+    print("[5/6] 悔棋与恢复                 PASS")
 
 
 def test_restart(p1, p2):
@@ -232,7 +254,7 @@ def test_restart(p1, p2):
         assert all(all(v == 0 for v in row) for row in s["board"]), "重开后棋盘应为空"
         assert s["over"] is False and s["current"] == 1 and s["lastMove"] is None
     assert s1["you"] == 2 and s2["you"] == 1, "重开后黑白应交换"
-    print("[5/5] 重新开始与换边            PASS")
+    print("[6/6] 重新开始与换边            PASS")
 
 
 def main():
@@ -261,6 +283,7 @@ def main():
         p1, p2 = test_join_and_colors()
         test_out_of_turn(p2)
         test_win(p1, p2)
+        test_undo(p1, p2)
         test_restart(p1, p2)
         p1.close()
         p2.close()

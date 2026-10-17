@@ -115,6 +115,7 @@ class Room:
         self.winner = None
         self.line = []
         self.last_move = None
+        self.history = []  # [(row, col, color), ...]
 
     def reset(self, swap=False):
         if swap and self.players[1] is not None and self.players[2] is not None:
@@ -127,6 +128,7 @@ class Room:
         self.winner = None
         self.line = []
         self.last_move = None
+        self.history = []
 
     def state_for(self, conn):
         return {
@@ -294,6 +296,7 @@ def handle_move(conn, msg):
         return
 
     room.board[row][col] = conn.color
+    room.history.append((row, col, conn.color))
     room.last_move = [row, col]
     line = check_win(room.board, row, col, conn.color)
     if line:
@@ -325,6 +328,38 @@ def handle_restart(conn):
     broadcast_locked(room)
 
 
+def handle_undo(conn):
+    """悔棋：撤销最后一手（简化规则，立即生效，无需对方确认）。"""
+    room = conn.room
+    if conn.color == 0:
+        conn.send({"type": "error", "message": "观众不能悔棋"})
+        return
+    if room.players[1] is None or room.players[2] is None:
+        conn.send({"type": "error", "message": "需要两名玩家都在线才能悔棋"})
+        return
+    if not room.history:
+        conn.send({"type": "error", "message": "还没有可以悔的棋子"})
+        return
+
+    row, col, color = room.history.pop()
+    room.board[row][col] = 0
+    room.current = color          # 轮回到被撤销落子的一方
+    room.over = False
+    room.winner = None
+    room.line = []
+    if room.history:
+        last = room.history[-1]
+        room.last_move = [last[0], last[1]]
+    else:
+        room.last_move = None
+
+    log(f"[悔棋] 撤销 {COLOR_NAMES[color]} 在 ({row + 1}, {col + 1}) 的落子")
+    for client in room.clients:
+        if client.alive:
+            client.send({"type": "undo", "color": color})
+    broadcast_locked(room)
+
+
 def handle_message(conn, text):
     try:
         msg = json.loads(text)
@@ -341,6 +376,8 @@ def handle_message(conn, text):
             handle_move(conn, msg)
         elif mtype == "restart":
             handle_restart(conn)
+        elif mtype == "undo":
+            handle_undo(conn)
         elif mtype == "ping":
             conn.send({"type": "pong"})
         else:
