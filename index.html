@@ -65,6 +65,7 @@
     </aside>
   </main>
 </div>
+<script src="assets/threats.js"></script>
 <script>
 "use strict";
 
@@ -88,6 +89,11 @@ const tagBlack = document.getElementById("tag-black");
 const tagWhite = document.getElementById("tag-white");
 const restartBtn = document.getElementById("restart");
 
+const placeSound = new Audio("assets/sounds/place.ogg");
+placeSound.preload = "auto";
+const winSound = new Audio("assets/sounds/win.ogg");
+winSound.preload = "auto";
+
 // ------------------------------ 客户端状态 ------------------------------
 function emptyState() {
   return {
@@ -100,6 +106,9 @@ let state = emptyState();
 let hover = null;
 let ws = null;
 let flashTimer = null;
+let prevLastMove = null;
+let prevOver = false;
+let firstState = true;
 
 // ------------------------------ 绘制 ------------------------------
 function pos(i) { return MARGIN + i * GAP; }
@@ -201,6 +210,9 @@ function draw() {
     ctx.fillText(String(i + 1), MARGIN - 24, pos(i));
   }
 
+  // 活三 / 冲四 连线提示（对局进行中）
+  if (!state.over) drawThreatLines();
+
   // 棋子
   for (let r = 0; r < N; r++) {
     for (let c = 0; c < N; c++) {
@@ -226,6 +238,50 @@ function draw() {
   if (hover && !state.over && state.you && state.you === state.current
       && !state.board[hover.r][hover.c]) {
     drawStone(hover.r, hover.c, state.you, 0.35);
+  }
+}
+
+// ------------------------------ 音效 ------------------------------
+function playSound(audio, delayMs) {
+  window.setTimeout(function () {
+    try {
+      audio.currentTime = 0;
+      const p = audio.play();
+      if (p && p.catch) p.catch(function () { /* 自动播放被拦截时忽略 */ });
+    } catch (err) {
+      /* 忽略 */
+    }
+  }, delayMs || 0);
+}
+
+// ------------------------------ 威胁连线提示 ------------------------------
+// 活三：蓝色虚线；冲四（含跳四/活四）：橙色实线
+function drawThreatLines() {
+  const threats = findThreats(state.board, N);
+  for (const th of threats) {
+    if (th.cells.length < 2) continue;
+    const a = th.cells[0];
+    const b = th.cells[th.cells.length - 1];
+    ctx.save();
+    ctx.lineCap = "round";
+    if (th.type === "three") {
+      ctx.strokeStyle = "rgba(70, 190, 255, .95)";
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([6, 5]);
+      ctx.shadowColor = "rgba(70, 190, 255, .65)";
+      ctx.shadowBlur = 8;
+    } else {
+      ctx.strokeStyle = "rgba(255, 120, 60, .95)";
+      ctx.lineWidth = 3;
+      ctx.setLineDash([]);
+      ctx.shadowColor = "rgba(255, 120, 60, .75)";
+      ctx.shadowBlur = 10;
+    }
+    ctx.beginPath();
+    ctx.moveTo(pos(a[1]), pos(a[0]));
+    ctx.lineTo(pos(b[1]), pos(b[0]));
+    ctx.stroke();
+    ctx.restore();
   }
 }
 
@@ -329,12 +385,26 @@ function connect() {
   setConn("连接中…", "");
   ws = new WebSocket(wsUrl());
 
-  ws.onopen = () => setConn("已连接", "ok");
+  ws.onopen = () => {
+    firstState = true;
+    prevLastMove = null;
+    prevOver = false;
+    setConn("已连接", "ok");
+  };
 
   ws.onmessage = (evt) => {
     let msg;
     try { msg = JSON.parse(evt.data); } catch (err) { return; }
     if (msg.type === "state") {
+      const moveKey = msg.lastMove ? msg.lastMove.join(",") : "";
+      const prevMoveKey = prevLastMove ? prevLastMove.join(",") : "";
+      if (!firstState) {
+        if (msg.lastMove && moveKey !== prevMoveKey) playSound(placeSound);
+        if (msg.over && !prevOver && msg.winner) playSound(winSound, 250);
+      }
+      firstState = false;
+      prevLastMove = msg.lastMove;
+      prevOver = msg.over;
       state = msg;
       draw();
       updateUI();

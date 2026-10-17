@@ -9,6 +9,8 @@
 |---|---|
 | `server.py` | HTTP 页面 + WebSocket 联机服务 + 游戏逻辑（服务端权威） |
 | `index.html` | Canvas 棋盘前端，浏览器打开即用 |
+| `assets/sounds/` | 落子 / 胜利音效（Kenney CC0 素材，浏览器直接播放 .ogg） |
+| `assets/threats.js` | 活三 / 冲四威胁检测（纯函数，前端与单测共用） |
 | `test_client.py` | 联机自测客户端，可测本机或线上地址 |
 | `requirements.txt` | 空依赖声明（供 Render 构建步骤使用） |
 | `render.yaml` | Render Blueprint 配置，可一键按此部署 |
@@ -38,6 +40,25 @@ py -3 gomoku/test_client.py --url https://你的应用.onrender.com
 ```
 
 覆盖：页面可访问、黑白分配、非本回合落子被拒、五连胜负判定与连线、重开换边。
+
+## 音效与连线提示
+
+音效（浏览器直接播放 `.ogg`，拦截自动播放时静默忽略）：
+
+| 场景 | 文件 | 来源 |
+|---|---|---|
+| 落子 | `assets/sounds/place.ogg` | [Kenney Interface Sounds](https://kenney.nl/assets/interface-sounds)（drop_002） |
+| 胜利 | `assets/sounds/win.ogg` | [Kenney Music Jingles](https://kenney.nl/assets/music-jingles)（jingles_NES00） |
+
+两个素材包均为 **CC0 1.0（公有领域）**，可自由商用、无需署名。
+
+棋盘提示（对局进行中）：
+
+- **活三**：蓝色虚线连接三颗棋子（连续 3 子、两端空，且一端落子可成"活四"）；
+- **冲四**：橙色实线连接四颗棋子（任意 5 格窗口内 4 枚同色 + 1 空，含跳四、活四）；
+- **胜利**：金色粗线连接连成五子的棋子。
+
+说明：跳活三（如 ●●_●）暂不提示；活四按冲四的橙色线条提示。
 
 ## 部署到 Render 免费层
 

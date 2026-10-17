@@ -33,6 +33,9 @@ MIME_TYPES = {
     ".png": "image/png",
     ".svg": "image/svg+xml",
     ".ico": "image/x-icon",
+    ".ogg": "audio/ogg",
+    ".mp3": "audio/mpeg",
+    ".wav": "audio/wav",
 }
 
 PORT = int(os.environ.get("PORT", "8000"))
@@ -234,8 +237,17 @@ def serve_http_request(sock, method, path, headers):
     rel = clean.lstrip("/")
     if rel in ("", "index.html"):
         rel = "index.html"
-    target = STATIC_DIR / rel
-    allowed = rel == "index.html" and target.is_file()
+
+    base = STATIC_DIR.resolve()
+    target = (STATIC_DIR / rel).resolve()
+    try:
+        target.relative_to(base)
+        inside = True
+    except ValueError:
+        inside = False
+    # 只开放页面本身与 assets/ 下的静态资源（音效、威胁检测脚本等）
+    allowed = inside and (rel == "index.html" or rel.startswith("assets/")) \
+        and target.is_file()
 
     if not allowed:
         send_http_status(sock, "404 Not Found")
@@ -243,12 +255,14 @@ def serve_http_request(sock, method, path, headers):
 
     data = target.read_bytes()
     mime = MIME_TYPES.get(target.suffix.lower(), "application/octet-stream")
+    cache = "no-store" if rel.endswith(".html") else "public, max-age=3600"
     head = (
         "HTTP/1.1 200 OK\r\n"
         "Content-Type: %s\r\n"
         "Content-Length: %d\r\n"
         "Connection: close\r\n"
-        "Cache-Control: no-store\r\n\r\n" % (mime, len(data))
+        "Cache-Control: %s\r\n\r\n"
+        % (mime, len(data), cache)
     )
     sock.sendall(head.encode("latin-1"))
     if method != "HEAD":
