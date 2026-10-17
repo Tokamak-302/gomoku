@@ -263,7 +263,8 @@ def serve_http_request(sock, method, path, headers):
 
     data = target.read_bytes()
     mime = MIME_TYPES.get(target.suffix.lower(), "application/octet-stream")
-    cache = "no-store" if rel.endswith(".html") else "public, max-age=3600"
+    # 本地/演示环境全部禁用缓存：避免浏览器继续使用旧版 threats.js 等资源
+    cache = "no-store"
     head = (
         "HTTP/1.1 200 OK\r\n"
         "Content-Type: %s\r\n"
