@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 本地工具产物（不提交）
+.tmp/
+.chrome-profile/
+.edge-profile/
+preview.png
+.check.js
+
+# 系统 / 编辑器
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

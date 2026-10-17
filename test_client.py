@@ -1,0 +1,252 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""五子棋服务端联机自测（纯标准库，零依赖）。
+
+先启动服务器:
+    py -3 gomoku/server.py
+再运行本测试:
+    py -3 gomoku/test_client.py
+
+测试内容:
+    1. HTTP 棋盘页面可访问
+    2. 两个客户端连接、黑白颜色分配
+    3. 非本回合落子被拒绝
+    4. 轮流落子后五连胜利判定（含获胜连线）
+    5. 「重新开始」清空棋盘并交换黑白
+"""
+import base64
+import json
+import os
+import socket
+import struct
+import sys
+import urllib.request
+
+HOST = "127.0.0.1"
+HTTP_PORT = 8000
+WS_PORT = 8765
+BOARD_SIZE = 15
+
+
+def _fix_stdout():
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# 最小 WebSocket 客户端（客户端帧需加掩码）
+# ---------------------------------------------------------------------------
+class WSClient:
+    def __init__(self, host=HOST, port=WS_PORT, timeout=5):
+        self.sock = socket.create_connection((host, port), timeout=timeout)
+        try:
+            self.sock.settimeout(timeout)
+            key = base64.b64encode(os.urandom(16)).decode()
+            request = (
+                "GET / HTTP/1.1\r\n"
+                f"Host: {host}:{port}\r\n"
+                "Upgrade: websocket\r\n"
+                "Connection: Upgrade\r\n"
+                f"Sec-WebSocket-Key: {key}\r\n"
+                "Sec-WebSocket-Version: 13\r\n\r\n"
+            )
+            self.sock.sendall(request.encode("latin-1"))
+            self.buf = bytearray()
+            head = self._read_until(b"\r\n\r\n")
+            status = head.split(b"\r\n", 1)[0].decode("latin-1", "replace")
+            assert " 101 " in status, "WebSocket 握手失败: %s" % status
+            self.buf = bytearray(head.split(b"\r\n\r\n", 1)[1])
+        except Exception:
+            self.sock.close()
+            raise
+
+    def _read_until(self, sep):
+        while sep not in self.buf:
+            chunk = self.sock.recv(4096)
+            if not chunk:
+                raise ConnectionError("连接被关闭")
+            self.buf += chunk
+        idx = self.buf.index(sep) + len(sep)
+        head = bytes(self.buf[:idx])
+        self.buf = bytearray(self.buf[idx:])
+        return head
+
+    def _recv_exact(self, n):
+        while len(self.buf) < n:
+            chunk = self.sock.recv(4096)
+            if not chunk:
+                raise ConnectionError("连接被关闭")
+            self.buf += chunk
+        data = bytes(self.buf[:n])
+        self.buf = bytearray(self.buf[n:])
+        return data
+
+    def _send_frame(self, opcode, data, mask=True):
+        header = bytearray([0x80 | opcode])
+        n = len(data)
+        if n < 126:
+            header.append((0x80 if mask else 0) | n)
+        elif n <= 0xFFFF:
+            header.append((0x80 if mask else 0) | 126)
+            header += struct.pack(">H", n)
+        else:
+            header.append((0x80 if mask else 0) | 127)
+            header += struct.pack(">Q", n)
+        if mask:
+            key = os.urandom(4)
+            header += key
+            data = bytes(b ^ key[i & 3] for i, b in enumerate(data))
+        self.sock.sendall(bytes(header) + data)
+
+    def send(self, obj):
+        self._send_frame(0x1, json.dumps(obj, ensure_ascii=False).encode("utf-8"))
+
+    def recv(self):
+        while True:
+            b1 = self._recv_exact(1)[0]
+            b2 = self._recv_exact(1)[0]
+            opcode = b1 & 0x0F
+            length = b2 & 0x7F
+            if length == 126:
+                length = struct.unpack(">H", self._recv_exact(2))[0]
+            elif length == 127:
+                length = struct.unpack(">Q", self._recv_exact(8))[0]
+            payload = self._recv_exact(length)
+            if opcode == 0x8:
+                raise ConnectionError("服务器关闭了连接")
+            if opcode == 0x9:  # ping -> pong
+                self._send_frame(0xA, payload)
+                continue
+            if opcode == 0xA:
+                continue
+            return json.loads(payload.decode("utf-8"))
+
+    def close(self):
+        try:
+            self._send_frame(0x8, b"")
+        except OSError:
+            pass
+        try:
+            self.sock.close()
+        except OSError:
+            pass
+
+
+def expect(client, msg_type, timeout=5):
+    client.sock.settimeout(timeout)
+    msg = client.recv()
+    assert msg.get("type") == msg_type, "期望收到 %s，实际收到: %r" % (msg_type, msg)
+    return msg
+
+
+def expect_error(client, keyword):
+    msg = expect(client, "error")
+    assert keyword in msg.get("message", ""), "错误信息不含「%s」: %r" % (keyword, msg)
+    return msg
+
+
+# ---------------------------------------------------------------------------
+# 测试步骤
+# ---------------------------------------------------------------------------
+def test_http_page():
+    url = "http://%s:%d/" % (HOST, HTTP_PORT)
+    with urllib.request.urlopen(url, timeout=5) as resp:
+        html = resp.read().decode("utf-8")
+        assert resp.status == 200, "HTTP 状态码异常: %r" % resp.status
+    assert "五子棋" in html, "页面内容不是五子棋页面"
+    print("[1/5] HTTP 页面可访问          PASS")
+
+
+def test_join_and_colors():
+    p1 = WSClient()
+    hello1 = expect(p1, "hello")
+    assert hello1["color"] == 1, "第一个玩家应为黑棋: %r" % hello1
+    st1 = expect(p1, "state")
+    assert st1["players"] == {"black": True, "white": False}, st1["players"]
+    assert st1["you"] == 1 and st1["current"] == 1
+
+    p2 = WSClient()
+    hello2 = expect(p2, "hello")
+    assert hello2["color"] == 2, "第二个玩家应为白棋: %r" % hello2
+    st2 = expect(p2, "state")
+    st1 = expect(p1, "state")
+    assert st1["players"] == {"black": True, "white": True}
+    assert st2["you"] == 2 and st1["you"] == 1
+    assert sum(sum(row) for row in st1["board"]) == 0, "开局棋盘应为空"
+    print("[2/5] 双客户端连接、黑白分配    PASS")
+    return p1, p2
+
+
+def test_out_of_turn(p2):
+    p2.send({"type": "move", "row": 7, "col": 7})  # 白棋抢先落子
+    expect_error(p2, "轮")
+    print("[3/5] 非本回合落子被拒绝        PASS")
+
+
+def test_win(p1, p2):
+    # 黑棋在第 0 行连五，白棋在第 1 行陪跑
+    for i in range(4):
+        p1.send({"type": "move", "row": 0, "col": i})
+        s1 = expect(p1, "state")
+        expect(p2, "state")
+        assert s1["board"][0][i] == 1, "黑棋落子未生效"
+        assert s1["lastMove"] == [0, i], "lastMove 异常: %r" % s1["lastMove"]
+        assert s1["current"] == 2, "落子后应轮到白棋"
+
+        p2.send({"type": "move", "row": 1, "col": i})
+        s1 = expect(p1, "state")
+        expect(p2, "state")
+        assert s1["board"][1][i] == 2, "白棋落子未生效"
+        assert s1["current"] == 1, "落子后应轮到黑棋"
+
+    p1.send({"type": "move", "row": 0, "col": 4})  # 黑棋第五子
+    s1 = expect(p1, "state")
+    expect(p2, "state")
+    assert s1["board"][0][4] == 1
+    assert s1["over"] is True, "五连后应判定对局结束"
+    assert s1["winner"] == 1, "黑棋应获胜: %r" % s1["winner"]
+    assert len(s1["line"]) >= 5, "获胜连线应包含至少 5 个点"
+    cells = {(r, c) for r, c in s1["line"]}
+    for i in range(5):
+        assert (0, i) in cells, "获胜连线缺少 (0, %d)" % i
+    print("[4/5] 五连胜利判定与连线        PASS")
+
+
+def test_restart(p1, p2):
+    p1.send({"type": "restart"})
+    s1 = expect(p1, "state")
+    s2 = expect(p2, "state")
+    for s in (s1, s2):
+        assert all(all(v == 0 for v in row) for row in s["board"]), "重开后棋盘应为空"
+        assert s["over"] is False and s["current"] == 1 and s["lastMove"] is None
+    assert s1["you"] == 2 and s2["you"] == 1, "重开后黑白应交换"
+    print("[5/5] 重新开始与换边            PASS")
+
+
+def main():
+    _fix_stdout()
+    print("五子棋联机自测（请先启动 gomoku/server.py）")
+    print("-" * 44)
+    try:
+        test_http_page()
+        p1, p2 = test_join_and_colors()
+        test_out_of_turn(p2)
+        test_win(p1, p2)
+        test_restart(p1, p2)
+        p1.close()
+        p2.close()
+    except AssertionError as exc:
+        print("\n[FAIL] %s" % exc)
+        return 1
+    except (OSError, ConnectionError) as exc:
+        print("\n[FAIL] 无法连接服务器（服务没启动？）: %s" % exc)
+        return 1
+    print("-" * 44)
+    print("全部通过 ✔")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
