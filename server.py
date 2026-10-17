@@ -116,6 +116,7 @@ class Room:
         self.line = []
         self.last_move = None
         self.history = []  # [(row, col, color), ...]
+        self.restart_votes = {1: False, 2: False}  # 重新开始需双方确认
 
     def reset(self, swap=False):
         if swap and self.players[1] is not None and self.players[2] is not None:
@@ -129,6 +130,7 @@ class Room:
         self.line = []
         self.last_move = None
         self.history = []
+        self.restart_votes = {1: False, 2: False}
 
     def state_for(self, conn):
         return {
@@ -145,6 +147,10 @@ class Room:
                 "white": self.players[2] is not None,
             },
             "connected": len([c for c in self.clients if c.alive]),
+            "restartVotes": {
+                "black": self.restart_votes[1],
+                "white": self.restart_votes[2],
+            },
         }
 
 
@@ -316,6 +322,7 @@ def handle_move(conn, msg):
 
 
 def handle_restart(conn):
+    """重新开始需双方确认：先点击的一方只发起请求，双方都点击后才重开。"""
     room = conn.room
     if conn.color == 0:
         conn.send({"type": "error", "message": "只有玩家可以重新开始"})
@@ -323,8 +330,20 @@ def handle_restart(conn):
     if room.players[1] is None or room.players[2] is None:
         conn.send({"type": "error", "message": "需要两名玩家都在线才能重新开始"})
         return
-    room.reset(swap=True)
-    log("[重开] 新对局开始，双方交换黑白")
+
+    color = conn.color
+    if room.restart_votes[color]:
+        # 已发起请求的一方再点一次 = 取消请求
+        room.restart_votes[color] = False
+        log(f"[重开] {COLOR_NAMES[color]} 取消了重新开始请求")
+        broadcast_locked(room)
+        return
+
+    room.restart_votes[color] = True
+    log(f"[重开] {COLOR_NAMES[color]} 请求重新开始")
+    if room.restart_votes[1] and room.restart_votes[2]:
+        room.reset(swap=True)
+        log("[重开] 双方已确认，新对局开始，双方交换黑白")
     broadcast_locked(room)
 
 
@@ -492,8 +511,10 @@ def handle_connection(sock, addr, room):
                     room.clients.remove(conn)
                 if room.players.get(1) is conn:
                     room.players[1] = None
+                    room.restart_votes[1] = False
                 if room.players.get(2) is conn:
                     room.players[2] = None
+                    room.restart_votes[2] = False
                 if conn.color:
                     log(f"[-] 离开 {addr[0]} 身份={COLOR_NAMES[conn.color]}")
                 broadcast_locked(room)

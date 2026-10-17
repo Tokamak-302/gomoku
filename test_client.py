@@ -247,14 +247,33 @@ def test_undo(p1, p2):
 
 
 def test_restart(p1, p2):
+    # 一方点击：只记录请求，不立即重开
     p1.send({"type": "restart"})
+    s1 = expect(p1, "state")
+    s2 = expect(p2, "state")
+    assert s1["restartVotes"] == {"black": True, "white": False}, s1["restartVotes"]
+    assert s1["board"][0][4] == 1, "单方请求时棋盘不应重置"
+    assert s1["you"] == 1 and s2["you"] == 2, "单方请求时黑白不应交换"
+
+    # 再点一次 = 取消请求
+    p1.send({"type": "restart"})
+    s1 = expect(p1, "state")
+    expect(p2, "state")
+    assert s1["restartVotes"] == {"black": False, "white": False}, s1["restartVotes"]
+
+    # 双方都点击后才重开并换边
+    p1.send({"type": "restart"})
+    expect(p1, "state")
+    expect(p2, "state")
+    p2.send({"type": "restart"})
     s1 = expect(p1, "state")
     s2 = expect(p2, "state")
     for s in (s1, s2):
         assert all(all(v == 0 for v in row) for row in s["board"]), "重开后棋盘应为空"
         assert s["over"] is False and s["current"] == 1 and s["lastMove"] is None
+        assert s["restartVotes"] == {"black": False, "white": False}
     assert s1["you"] == 2 and s2["you"] == 1, "重开后黑白应交换"
-    print("[6/6] 重新开始与换边            PASS")
+    print("[6/6] 双方确认后重开与换边      PASS")
 
 
 def main():
