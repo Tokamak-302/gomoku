@@ -93,6 +93,8 @@ const placeSound = new Audio("assets/sounds/place.ogg");
 placeSound.preload = "auto";
 const winSound = new Audio("assets/sounds/win.ogg");
 winSound.preload = "auto";
+const threatSound = new Audio("assets/sounds/threat.ogg");
+threatSound.preload = "auto";
 
 // ------------------------------ 客户端状态 ------------------------------
 function emptyState() {
@@ -210,9 +212,6 @@ function draw() {
     ctx.fillText(String(i + 1), MARGIN - 24, pos(i));
   }
 
-  // 活三 / 冲四 连线提示（对局进行中）
-  if (!state.over) drawThreatLines();
-
   // 棋子
   for (let r = 0; r < N; r++) {
     for (let c = 0; c < N; c++) {
@@ -230,6 +229,9 @@ function draw() {
     ctx.lineWidth = 2;
     ctx.stroke();
   }
+
+  // 活三 / 冲四 连线提示（盖在棋子上方，向外延伸半格）
+  if (!state.over) drawThreatLines();
 
   // 获胜连线
   drawWinLine();
@@ -255,31 +257,49 @@ function playSound(audio, delayMs) {
 }
 
 // ------------------------------ 威胁连线提示 ------------------------------
-// 活三：蓝色虚线；冲四（含跳四/活四）：橙色实线
+// 活三：蓝色粗虚线；冲四（含跳四/活四）：橙色粗实线
+// 绘制在棋子之上，并向两端各延伸半格
 function drawThreatLines() {
   const threats = findThreats(state.board, N);
+  const ext = GAP * 0.5;
   for (const th of threats) {
     if (th.cells.length < 2) continue;
     const a = th.cells[0];
     const b = th.cells[th.cells.length - 1];
+    const sx = Math.sign(b[1] - a[1]);
+    const sy = Math.sign(b[0] - a[0]);
+    const x1 = pos(a[1]) - sx * ext;
+    const y1 = pos(a[0]) - sy * ext;
+    const x2 = pos(b[1]) + sx * ext;
+    const y2 = pos(b[0]) + sy * ext;
+
     ctx.save();
     ctx.lineCap = "round";
+    ctx.setLineDash([]);
+
+    // 深色衬底：保证在木纹和黑白棋子上都清晰可见
+    ctx.strokeStyle = "rgba(12, 8, 2, .5)";
+    ctx.lineWidth = 9;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+
+    ctx.shadowBlur = 12;
     if (th.type === "three") {
-      ctx.strokeStyle = "rgba(70, 190, 255, .95)";
-      ctx.lineWidth = 2.5;
-      ctx.setLineDash([6, 5]);
-      ctx.shadowColor = "rgba(70, 190, 255, .65)";
-      ctx.shadowBlur = 8;
+      ctx.strokeStyle = "rgba(80, 205, 255, 1)";
+      ctx.lineWidth = 4.5;
+      ctx.setLineDash([9, 6]);
+      ctx.shadowColor = "rgba(80, 205, 255, .9)";
     } else {
-      ctx.strokeStyle = "rgba(255, 120, 60, .95)";
-      ctx.lineWidth = 3;
+      ctx.strokeStyle = "rgba(255, 118, 45, 1)";
+      ctx.lineWidth = 5;
       ctx.setLineDash([]);
-      ctx.shadowColor = "rgba(255, 120, 60, .75)";
-      ctx.shadowBlur = 10;
+      ctx.shadowColor = "rgba(255, 118, 45, .9)";
     }
     ctx.beginPath();
-    ctx.moveTo(pos(a[1]), pos(a[0]));
-    ctx.lineTo(pos(b[1]), pos(b[0]));
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
     ctx.stroke();
     ctx.restore();
   }
@@ -400,7 +420,18 @@ function connect() {
       const prevMoveKey = prevLastMove ? prevLastMove.join(",") : "";
       if (!firstState) {
         if (msg.lastMove && moveKey !== prevMoveKey) playSound(placeSound);
-        if (msg.over && !prevOver && msg.winner) playSound(winSound, 250);
+        if (msg.over && !prevOver) {
+          if (msg.winner) playSound(winSound, 250);
+        } else if (msg.lastMove && moveKey !== prevMoveKey) {
+          // 这一手是否新形成了活三或冲四（提示音共用）
+          const last = msg.lastMove;
+          const created = findThreats(msg.board, N).some(function (th) {
+            return th.cells.some(function (p) {
+              return p[0] === last[0] && p[1] === last[1];
+            });
+          });
+          if (created) playSound(threatSound, 180);
+        }
       }
       firstState = false;
       prevLastMove = msg.lastMove;

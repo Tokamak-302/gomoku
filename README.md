@@ -48,14 +48,17 @@ py -3 gomoku/test_client.py --url https://你的应用.onrender.com
 | 场景 | 文件 | 来源 |
 |---|---|---|
 | 落子 | `assets/sounds/place.ogg` | [Kenney Interface Sounds](https://kenney.nl/assets/interface-sounds)（drop_002） |
-| 胜利 | `assets/sounds/win.ogg` | [Kenney Music Jingles](https://kenney.nl/assets/music-jingles)（jingles_NES00） |
+| 活三/冲四提示 | `assets/sounds/threat.ogg` | [Kenney Interface Sounds](https://kenney.nl/assets/interface-sounds)（confirmation_002） |
+| 胜利 | `assets/sounds/win.ogg` | [Kenney Music Jingles](https://kenney.nl/assets/music-jingles)（jingles_STEEL01，钢鼓风格更欢快） |
 
 两个素材包均为 **CC0 1.0（公有领域）**，可自由商用、无需署名。
 
 棋盘提示（对局进行中）：
 
-- **活三**：蓝色虚线连接三颗棋子（连续 3 子、两端空，且一端落子可成"活四"）；
-- **冲四**：橙色实线连接四颗棋子（任意 5 格窗口内 4 枚同色 + 1 空，含跳四、活四）；
+- **活三**：蓝色粗虚线连接三颗棋子（连续 3 子、两端空，且一端落子可成"活四"）；
+- **冲四**：橙色粗实线连接四颗棋子（任意 5 格窗口内 4 枚同色 + 1 空，含跳四、活四）；
+- 连线绘制在棋子上方、带深色衬底，并向两端各延伸半格，便于一眼识别；
+- 任意一方落子**新形成**活三或冲四时，播放统一的提示音（threat.ogg）；
 - **胜利**：金色粗线连接连成五子的棋子。
 
 说明：跳活三（如 ●●_●）暂不提示；活四按冲四的橙色线条提示。
