@@ -1,37 +1,43 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""五子棋 · 本机联机验证版（纯标准库，零依赖）
+"""五子棋 · 联机版（纯标准库，零依赖；单端口同时提供页面与 WebSocket）
 
-运行:
-    py -3 gomoku/server.py
-然后浏览器打开 http://localhost:8000，再开一个窗口访问同一地址即可联机对弈。
+本机运行:
+    py -3 server.py
+浏览器打开 http://127.0.0.1:8000，再开一个窗口即可联机对弈。
 
-端口:
-    HTTP 8000  —— 棋盘页面（静态文件）
-    WS   8765  —— 联机 WebSocket
-
-说明:
-    - 服务器权威：落子合法性、胜负判定全在服务端完成。
-    - 规则：自由规则（无禁手），15×15 棋盘，黑先，连五即胜。
-    - 单房间：前两个连接分别为黑、白，之后连接成为观众。
+部署到 Render / Railway 等平台时:
+    - 平台会注入环境变量 PORT，程序自动监听 0.0.0.0:$PORT；
+    - 也可用环境变量 HOST 显式指定监听地址。
 """
 import base64
 import hashlib
 import json
+import os
 import socket
 import socketserver
 import struct
 import sys
 import threading
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 BOARD_SIZE = 15
-HTTP_PORT = 8000
-WS_PORT = 8765
-HOST = "127.0.0.1"  # 想在同一局域网用手机试玩，把这里改成 "0.0.0.0"
 STATIC_DIR = Path(__file__).resolve().parent
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+MIME_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".png": "image/png",
+    ".svg": "image/svg+xml",
+    ".ico": "image/x-icon",
+}
+
+PORT = int(os.environ.get("PORT", "8000"))
+# 本地默认只监听回环地址；检测到平台注入的 PORT 时监听所有网卡。
+HOST = os.environ.get("HOST") or ("0.0.0.0" if "PORT" in os.environ else "127.0.0.1")
 
 COLOR_NAMES = {1: "黑棋", 2: "白棋", 0: "观众"}
 
@@ -98,14 +104,14 @@ class Room:
 
     def __init__(self):
         self.lock = threading.RLock()
-        self.clients = []                 # 所有在线连接（含观众）
+        self.clients = []                  # 所有在线 WebSocket 连接（含观众）
         self.players = {1: None, 2: None}  # 黑 / 白
         self.board = [[0] * BOARD_SIZE for _ in range(BOARD_SIZE)]
-        self.current = 1                  # 当前该谁落子
+        self.current = 1
         self.over = False
-        self.winner = None                # 1/2 为胜方，0 为平局，None 为进行中
-        self.line = []                    # 获胜连线坐标
-        self.last_move = None             # [row, col]
+        self.winner = None
+        self.line = []
+        self.last_move = None
 
     def reset(self, swap=False):
         if swap and self.players[1] is not None and self.players[2] is not None:
@@ -207,17 +213,46 @@ def read_until(sock, sep):
         buf += chunk
         if len(buf) > 64 * 1024:
             raise ConnectionError("请求头过大")
-    return buf
+    return bytes(buf)
 
 
-def send_http(sock, status, body):
-    data = body.encode("utf-8")
+def send_http_status(sock, status):
+    body = (status + "\n").encode("utf-8")
     sock.sendall((
-        f"HTTP/1.1 {status}\r\n"
+        "HTTP/1.1 %s\r\n"
         "Content-Type: text/plain; charset=utf-8\r\n"
-        f"Content-Length: {len(data)}\r\n"
-        "Connection: close\r\n\r\n"
-    ).encode("latin-1") + data)
+        "Content-Length: %d\r\n"
+        "Connection: close\r\n\r\n" % (status, len(body))
+    ).encode("latin-1") + body)
+
+
+# ---------------------------------------------------------------------------
+# HTTP 静态页面（与 WebSocket 共用同一端口）
+# ---------------------------------------------------------------------------
+def serve_http_request(sock, method, path, headers):
+    clean = path.split("?", 1)[0].split("#", 1)[0]
+    rel = clean.lstrip("/")
+    if rel in ("", "index.html"):
+        rel = "index.html"
+    target = STATIC_DIR / rel
+    allowed = rel == "index.html" and target.is_file()
+
+    if not allowed:
+        send_http_status(sock, "404 Not Found")
+        return
+
+    data = target.read_bytes()
+    mime = MIME_TYPES.get(target.suffix.lower(), "application/octet-stream")
+    head = (
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: %s\r\n"
+        "Content-Length: %d\r\n"
+        "Connection: close\r\n"
+        "Cache-Control: no-store\r\n\r\n" % (mime, len(data))
+    )
+    sock.sendall(head.encode("latin-1"))
+    if method != "HEAD":
+        sock.sendall(data)
 
 
 # ---------------------------------------------------------------------------
@@ -299,7 +334,7 @@ def handle_message(conn, text):
 
 
 # ---------------------------------------------------------------------------
-# 连接生命周期（握手 + 帧循环）
+# WebSocket 帧循环与连接生命周期（握手 + 帧循环）
 # ---------------------------------------------------------------------------
 def frame_loop(sock, conn):
     frag_op = None
@@ -342,11 +377,20 @@ def frame_loop(sock, conn):
 
 
 def handle_connection(sock, addr, room):
+    """单端口分发：带 Upgrade 头的走 WebSocket，其余按 HTTP 页面处理。"""
     conn = PlayerConn(sock, addr, room)
-    sock.settimeout(10)
+    registered = False
     try:
-        raw = bytes(read_until(sock, b"\r\n\r\n"))
+        sock.settimeout(10)
+        raw = read_until(sock, b"\r\n\r\n")
+        sock.settimeout(None)
+
         lines = raw.split(b"\r\n")
+        request_line = lines[0].decode("latin-1", "replace")
+        method, _, rest = request_line.partition(" ")
+        method = method.upper()
+        path = rest.split(" ", 1)[0] if " " in rest else rest
+
         headers = {}
         for line in lines[1:]:
             if b":" not in line:
@@ -354,58 +398,58 @@ def handle_connection(sock, addr, room):
             key, _, value = line.partition(b":")
             headers[key.strip().lower().decode("latin-1")] = value.strip().decode("latin-1")
 
-        if headers.get("upgrade", "").lower() != "websocket":
-            send_http(sock, "400 Bad Request", "请使用 WebSocket 连接")
-            return
-        ws_key = headers.get("sec-websocket-key", "")
-        if not ws_key:
-            send_http(sock, "400 Bad Request", "缺少 Sec-WebSocket-Key")
-            return
+        if headers.get("upgrade", "").lower() == "websocket":
+            ws_key = headers.get("sec-websocket-key", "")
+            if not ws_key:
+                send_http_status(sock, "400 Bad Request")
+                return
+            accept = base64.b64encode(
+                hashlib.sha1((ws_key + WS_GUID).encode()).digest()
+            ).decode()
+            sock.sendall((
+                "HTTP/1.1 101 Switching Protocols\r\n"
+                "Upgrade: websocket\r\n"
+                "Connection: Upgrade\r\n"
+                "Sec-WebSocket-Accept: %s\r\n\r\n" % accept
+            ).encode("latin-1"))
 
-        accept = base64.b64encode(
-            hashlib.sha1((ws_key + WS_GUID).encode()).digest()
-        ).decode()
-        sock.sendall((
-            "HTTP/1.1 101 Switching Protocols\r\n"
-            "Upgrade: websocket\r\n"
-            "Connection: Upgrade\r\n"
-            "Sec-WebSocket-Accept: %s\r\n\r\n" % accept
-        ).encode("latin-1"))
-        sock.settimeout(None)
+            with room.lock:
+                room.clients.append(conn)
+                if room.players[1] is None:
+                    conn.color = 1
+                    room.players[1] = conn
+                elif room.players[2] is None:
+                    conn.color = 2
+                    room.players[2] = conn
+                else:
+                    conn.color = 0  # 观众
+                registered = True
+                log(f"[+] 连接 {addr[0]} 身份={COLOR_NAMES[conn.color]}")
+                conn.send({"type": "hello", "color": conn.color})
+                broadcast_locked(room)
 
-        with room.lock:
-            room.clients.append(conn)
-            if room.players[1] is None:
-                conn.color = 1
-                room.players[1] = conn
-            elif room.players[2] is None:
-                conn.color = 2
-                room.players[2] = conn
-            else:
-                conn.color = 0  # 观众
-            log(f"[+] 连接 {addr[0]} 身份={COLOR_NAMES[conn.color]}")
-            conn.send({"type": "hello", "color": conn.color})
-            broadcast_locked(room)
-
-        frame_loop(sock, conn)
+            frame_loop(sock, conn)
+        else:
+            serve_http_request(sock, method, path, headers)
     except (ConnectionError, OSError):
         pass
     finally:
         conn.alive = False
-        with room.lock:
-            if conn in room.clients:
-                room.clients.remove(conn)
-            if room.players.get(1) is conn:
-                room.players[1] = None
-            if room.players.get(2) is conn:
-                room.players[2] = None
-            try:
-                sock.close()
-            except OSError:
-                pass
-            if conn.color:
-                log(f"[-] 离开 {addr[0]} 身份={COLOR_NAMES[conn.color]}")
-            broadcast_locked(room)
+        if registered:
+            with room.lock:
+                if conn in room.clients:
+                    room.clients.remove(conn)
+                if room.players.get(1) is conn:
+                    room.players[1] = None
+                if room.players.get(2) is conn:
+                    room.players[2] = None
+                if conn.color:
+                    log(f"[-] 离开 {addr[0]} 身份={COLOR_NAMES[conn.color]}")
+                broadcast_locked(room)
+        try:
+            sock.close()
+        except OSError:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -421,36 +465,19 @@ class WSHandler(socketserver.BaseRequestHandler):
         handle_connection(self.request, self.client_address, ROOM)
 
 
-def serve_http():
-    class Handler(SimpleHTTPRequestHandler):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, directory=str(STATIC_DIR), **kwargs)
-
-        def log_message(self, fmt, *args):
-            pass
-
-    try:
-        httpd = ThreadingHTTPServer((HOST, HTTP_PORT), Handler)
-    except OSError as exc:
-        log(f"[X] HTTP 端口 {HTTP_PORT} 无法绑定：{exc}")
-        return
-    httpd.serve_forever()
-
-
 def main():
     _fix_stdout()
-    threading.Thread(target=serve_http, daemon=True).start()
     try:
-        server = WSServer((HOST, WS_PORT), WSHandler)
+        server = WSServer((HOST, PORT), WSHandler)
     except OSError as exc:
-        log(f"[X] WebSocket 端口 {WS_PORT} 无法绑定：{exc}")
+        log(f"[X] 端口 {PORT} 无法绑定：{exc}")
         return 1
 
+    shown = "127.0.0.1" if HOST == "0.0.0.0" else HOST
     log("=" * 52)
-    log(" 五子棋 · 本机联机验证服务已启动")
-    log(f" 棋盘页面 : http://{HOST}:{HTTP_PORT}")
-    log(f" WebSocket: ws://{HOST}:{WS_PORT}")
-    log(" 用法     : 开两个浏览器窗口访问上面的棋盘页面")
+    log(" 五子棋 · 联机服务已启动（单端口：页面 + WebSocket）")
+    log(f" 本机访问 : http://{shown}:{PORT}")
+    log(" 部署平台 : 自动使用环境变量 PORT / HOST")
     log(" 停止     : 按 Ctrl+C")
     log("=" * 52)
     try:

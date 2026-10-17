@@ -318,9 +318,11 @@ function flash(text) {
 // ------------------------------ WebSocket ------------------------------
 function wsUrl() {
   const scheme = location.protocol === "https:" ? "wss" : "ws";
-  let host = location.hostname;
-  if (host === "localhost") host = "127.0.0.1";
-  return scheme + "://" + host + ":8765";
+  let host = location.host;
+  if (location.hostname === "localhost") {
+    host = "127.0.0.1" + (location.port ? ":" + location.port : "");
+  }
+  return scheme + "://" + host + "/";
 }
 
 function connect() {

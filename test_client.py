@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""五子棋服务端联机自测（纯标准库，零依赖）。
+"""五子棋联机自测（纯标准库，零依赖）。
 
-先启动服务器:
-    py -3 gomoku/server.py
-再运行本测试:
-    py -3 gomoku/test_client.py
+本机测试（需先启动 server.py）:
+    py -3 test_client.py
+
+线上地址验证（Render / Railway 部署完成后）:
+    py -3 test_client.py --url https://你的应用.onrender.com
 
 测试内容:
     1. HTTP 棋盘页面可访问
@@ -14,18 +15,25 @@
     4. 轮流落子后五连胜利判定（含获胜连线）
     5. 「重新开始」清空棋盘并交换黑白
 """
+import argparse
 import base64
 import json
 import os
 import socket
+import ssl
 import struct
 import sys
+import urllib.parse
 import urllib.request
 
-HOST = "127.0.0.1"
-HTTP_PORT = 8000
-WS_PORT = 8765
-BOARD_SIZE = 15
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 8000
+
+HOST = DEFAULT_HOST
+PORT = DEFAULT_PORT
+TIMEOUT = 5
+TLS = False
+BASE_URL = "http://%s:%d/" % (DEFAULT_HOST, DEFAULT_PORT)
 
 
 def _fix_stdout():
@@ -35,23 +43,26 @@ def _fix_stdout():
         pass
 
 
-# ---------------------------------------------------------------------------
-# 最小 WebSocket 客户端（客户端帧需加掩码）
-# ---------------------------------------------------------------------------
 class WSClient:
-    def __init__(self, host=HOST, port=WS_PORT, timeout=5):
-        self.sock = socket.create_connection((host, port), timeout=timeout)
+    def __init__(self):
+        self.timeout = TIMEOUT
+        raw = socket.create_connection((HOST, PORT), timeout=TIMEOUT)
         try:
-            self.sock.settimeout(timeout)
+            raw.settimeout(TIMEOUT)
+            if TLS:
+                context = ssl.create_default_context()
+                raw = context.wrap_socket(raw, server_hostname=HOST)
+                raw.settimeout(TIMEOUT)
+            self.sock = raw
             key = base64.b64encode(os.urandom(16)).decode()
             request = (
                 "GET / HTTP/1.1\r\n"
-                f"Host: {host}:{port}\r\n"
+                "Host: %s:%d\r\n"
                 "Upgrade: websocket\r\n"
                 "Connection: Upgrade\r\n"
-                f"Sec-WebSocket-Key: {key}\r\n"
+                "Sec-WebSocket-Key: %s\r\n"
                 "Sec-WebSocket-Version: 13\r\n\r\n"
-            )
+            ) % (HOST, PORT, key)
             self.sock.sendall(request.encode("latin-1"))
             self.buf = bytearray()
             head = self._read_until(b"\r\n\r\n")
@@ -59,7 +70,10 @@ class WSClient:
             assert " 101 " in status, "WebSocket 握手失败: %s" % status
             self.buf = bytearray(head.split(b"\r\n\r\n", 1)[1])
         except Exception:
-            self.sock.close()
+            try:
+                raw.close()
+            except OSError:
+                pass
             raise
 
     def _read_until(self, sep):
@@ -104,6 +118,7 @@ class WSClient:
         self._send_frame(0x1, json.dumps(obj, ensure_ascii=False).encode("utf-8"))
 
     def recv(self):
+        self.sock.settimeout(self.timeout)
         while True:
             b1 = self._recv_exact(1)[0]
             b2 = self._recv_exact(1)[0]
@@ -134,8 +149,7 @@ class WSClient:
             pass
 
 
-def expect(client, msg_type, timeout=5):
-    client.sock.settimeout(timeout)
+def expect(client, msg_type):
     msg = client.recv()
     assert msg.get("type") == msg_type, "期望收到 %s，实际收到: %r" % (msg_type, msg)
     return msg
@@ -147,12 +161,8 @@ def expect_error(client, keyword):
     return msg
 
 
-# ---------------------------------------------------------------------------
-# 测试步骤
-# ---------------------------------------------------------------------------
 def test_http_page():
-    url = "http://%s:%d/" % (HOST, HTTP_PORT)
-    with urllib.request.urlopen(url, timeout=5) as resp:
+    with urllib.request.urlopen(BASE_URL, timeout=TIMEOUT) as resp:
         html = resp.read().decode("utf-8")
         assert resp.status == 200, "HTTP 状态码异常: %r" % resp.status
     assert "五子棋" in html, "页面内容不是五子棋页面"
@@ -226,8 +236,25 @@ def test_restart(p1, p2):
 
 
 def main():
+    global HOST, PORT, TIMEOUT, TLS, BASE_URL
     _fix_stdout()
-    print("五子棋联机自测（请先启动 gomoku/server.py）")
+    parser = argparse.ArgumentParser(description="五子棋联机自测")
+    parser.add_argument("--url", help="线上地址，如 https://gomoku.onrender.com；省略则测本机")
+    args = parser.parse_args()
+
+    if args.url:
+        url = args.url if "://" in args.url else "https://" + args.url
+        parsed = urllib.parse.urlparse(url)
+        HOST = parsed.hostname
+        TLS = parsed.scheme == "https"
+        PORT = parsed.port or (443 if TLS else 80)
+        TIMEOUT = 90
+        BASE_URL = url.rstrip("/") + "/"
+        print("测试目标: %s（首次访问可能触发平台冷启动，请耐心等待）" % url)
+    else:
+        print("测试目标: 本机 %s" % BASE_URL)
+
+    print("五子棋联机自测（本机测试请先启动 server.py）")
     print("-" * 44)
     try:
         test_http_page()
@@ -241,7 +268,7 @@ def main():
         print("\n[FAIL] %s" % exc)
         return 1
     except (OSError, ConnectionError) as exc:
-        print("\n[FAIL] 无法连接服务器（服务没启动？）: %s" % exc)
+        print("\n[FAIL] 无法连接目标（服务未启动或地址不可达）: %s" % exc)
         return 1
     print("-" * 44)
     print("全部通过 ✔")
