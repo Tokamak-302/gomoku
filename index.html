@@ -15,17 +15,32 @@
     padding: 24px;
   }
   .app { width: 100%; max-width: 860px; }
-  h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: 4px; text-align: center; font-weight: 700; }
-  .sub { margin: 0 0 34px; text-align: center; color: #8f9bb0; font-size: 14px; }
+  .title-row { display: flex; align-items: center; justify-content: space-between; }
+  h1 { margin: 0; font-size: 30px; letter-spacing: 4px; font-weight: 700; }
+  .conn { font-size: 13px; padding: 4px 12px; border-radius: 999px; background: #2a3140; color: #9fb0c9; }
+  .conn.ok { background: #173527; color: #5fd18b; }
+  .conn.bad { background: #3a1f22; color: #ff8a80; }
+  .sub { margin: 6px 0 20px; color: #8f9bb0; font-size: 14px; }
+  .online { font-size: 14px; color: #c9d4e4; margin-bottom: 10px; }
+  .online b { color: #6fa0ff; font-size: 18px; }
+  .notice {
+    min-height: 24px; font-size: 14px; color: #f0c060;
+    margin-bottom: 20px; line-height: 1.6;
+  }
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
   .card {
     display: block; text-decoration: none; color: inherit;
     background: #1b212c; border: 1px solid #2a3140; border-radius: 16px;
-    padding: 26px 24px; transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+    padding: 26px 24px; cursor: pointer;
+    transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
   }
   .card:hover {
     transform: translateY(-4px); border-color: #3d6fd4;
     box-shadow: 0 14px 36px rgba(0,0,0,.45);
+  }
+  .card.selected {
+    border-color: #6fa0ff;
+    box-shadow: 0 0 0 2px rgba(111, 160, 255, .6), 0 14px 36px rgba(0,0,0,.45);
   }
   .icon { height: 66px; display: flex; align-items: center; margin-bottom: 16px; }
   .stones { position: relative; width: 80px; height: 66px; }
@@ -51,10 +66,15 @@
 </head>
 <body>
 <div class="app">
-  <h1>棋类对战</h1>
-  <p class="sub">选择一种玩法开始 · 开两个窗口即可联机对弈</p>
+  <div class="title-row">
+    <h1>棋类对战</h1>
+    <div class="conn" id="conn">连接中…</div>
+  </div>
+  <p class="sub">两名玩家选择同一种玩法后进入对局 · 开两个窗口即可联机</p>
+  <div class="online">已连接玩家：<b id="online">0/2</b></div>
+  <div class="notice" id="notice"></div>
   <div class="cards">
-    <a class="card" href="gomoku.html">
+    <div class="card" id="card-gomoku" data-game="gomoku">
       <div class="icon">
         <div class="stones">
           <div class="stone b s1"></div>
@@ -64,9 +84,9 @@
       </div>
       <h2>五子棋</h2>
       <p>15×15 棋盘 · 连五获胜 · 活三/冲四提示 · 悔棋 · 双方确认重开</p>
-      <span class="go">开始对局 →</span>
-    </a>
-    <a class="card" href="xiangqi.html">
+      <span class="go">选择此玩法 →</span>
+    </div>
+    <div class="card" id="card-xiangqi" data-game="xiangqi">
       <div class="icon">
         <div class="xq">
           <span>車</span><span>馬</span><span class="dark">砲</span><span>兵</span>
@@ -74,9 +94,121 @@
       </div>
       <h2>中国象棋</h2>
       <p>9×10 棋盘 · 红方先行 · 将死获胜 · 悔棋 · 双方确认重开</p>
-      <span class="go">开始对局 →</span>
-    </a>
+      <span class="go">选择此玩法 →</span>
+    </div>
   </div>
 </div>
+<script>
+"use strict";
+
+const GAME_NAMES = { gomoku: "五子棋", xiangqi: "中国象棋" };
+
+const connEl = document.getElementById("conn");
+const onlineEl = document.getElementById("online");
+const noticeEl = document.getElementById("notice");
+const cardGomoku = document.getElementById("card-gomoku");
+const cardXiangqi = document.getElementById("card-xiangqi");
+
+let state = { you: 0, connected: 0, selections: { "1": null, "2": null } };
+let ws = null;
+let navigating = false;
+
+function setConn(text, cls) {
+  connEl.textContent = text;
+  connEl.className = "conn" + (cls ? " " + cls : "");
+}
+
+function updateUI() {
+  const s = state;
+  onlineEl.textContent = (s.connected || 0) + "/2";
+
+  const mySel = s.you ? s.selections[String(s.you)] : null;
+  const oppKey = s.you === 1 ? "2" : "1";
+  const oppSel = s.you ? s.selections[oppKey] : null;
+
+  cardGomoku.classList.toggle("selected", mySel === "gomoku");
+  cardXiangqi.classList.toggle("selected", mySel === "xiangqi");
+
+  let notice = "";
+  if (!s.you) {
+    notice = "当前为观众模式（已有两名玩家连接）";
+  } else if (mySel && oppSel && mySel !== oppSel) {
+    notice = "双方选择不同，请统一玩法（对方选择了" + GAME_NAMES[oppSel] + "）";
+  } else if (mySel) {
+    notice = "已选择" + GAME_NAMES[mySel] + "，等待对方选择…（再点一次可取消）";
+  } else if (oppSel) {
+    notice = "另一位玩家想玩" + GAME_NAMES[oppSel];
+  } else if ((s.connected || 0) < 2) {
+    notice = "等待另一位玩家连接…（再开一个窗口访问本页）";
+  } else {
+    notice = "请选择想玩的玩法";
+  }
+  noticeEl.textContent = notice;
+}
+
+function selectGame(game) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  if (!state.you) return;
+  ws.send(JSON.stringify({ type: "select", game: game }));
+}
+
+cardGomoku.addEventListener("click", () => selectGame("gomoku"));
+cardXiangqi.addEventListener("click", () => selectGame("xiangqi"));
+
+function wsUrl() {
+  const scheme = location.protocol === "https:" ? "wss" : "ws";
+  let host = location.host;
+  if (location.hostname === "localhost") {
+    host = "127.0.0.1" + (location.port ? ":" + location.port : "");
+  }
+  return scheme + "://" + host + "/";
+}
+
+function connect() {
+  setConn("连接中…", "");
+  ws = new WebSocket(wsUrl());
+
+  ws.onopen = () => {
+    setConn("已连接", "ok");
+    ws.send(JSON.stringify({ type: "join", game: "lobby" }));
+  };
+
+  ws.onmessage = (evt) => {
+    let msg;
+    try { msg = JSON.parse(evt.data); } catch (err) { return; }
+    if (msg.type === "lobby_state") {
+      state = msg;
+      updateUI();
+    } else if (msg.type === "start") {
+      if (navigating) return;
+      navigating = true;
+      location.href = msg.game + ".html";
+    } else if (msg.type === "error") {
+      flashNotice(msg.message || "出错了");
+    }
+  };
+
+  ws.onclose = () => {
+    setConn("已断开，重连中…", "bad");
+    setTimeout(connect, 1200);
+  };
+
+  ws.onerror = () => {
+    try { ws.close(); } catch (err) { /* 忽略 */ }
+  };
+}
+
+function flashNotice(text) {
+  noticeEl.textContent = text;
+  noticeEl.style.color = "#ff8a80";
+  setTimeout(function () {
+    noticeEl.style.color = "";
+    updateUI();
+  }, 1800);
+}
+
+updateUI();
+connect();
+</script>
 </body>
 </html>

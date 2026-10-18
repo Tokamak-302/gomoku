@@ -161,8 +161,8 @@ let skipSoundOnce = false;
 let undoNotice = null;
 let flipped = false;      // 黑方视角时翻转棋盘
 let prevInCheck = false;
-let blockers = [];        // 马腿 / 象眼挡子
-let blockerLabel = "";
+let blockers = [];        // 马腿 / 象眼挡子（仅紫圈）
+let hadBoth = false;
 
 function posX(c) { return MARGIN + c * CELL; }
 function posY(r) { return MARGIN + r * CELL; }
@@ -180,7 +180,6 @@ function clearSelection() {
   captureByMap = {};
   hoverDest = null;
   blockers = [];
-  blockerLabel = "";
 }
 
 // 显示坐标（黑方视角时 180° 翻转，自己的棋子始终在下方）
@@ -392,16 +391,6 @@ function draw() {
       ctx.shadowBlur = 8;
       ctx.stroke();
       ctx.restore();
-      ctx.save();
-      ctx.font = "bold 11px 'Microsoft YaHei', sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "bottom";
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = "rgba(25, 10, 40, .9)";
-      ctx.strokeText(blockerLabel, bx, by - CELL * 0.5 - 2);
-      ctx.fillStyle = "rgba(200, 160, 255, 1)";
-      ctx.fillText(blockerLabel, bx, by - CELL * 0.5 - 2);
-      ctx.restore();
     }
   }
 
@@ -481,7 +470,6 @@ canvas.addEventListener("click", (evt) => {
     hoverDest = null;
     const kind = piece.toUpperCase();
     blockers = (kind === "N" || kind === "B") ? computeBlockers(piece, r, c) : [];
-    blockerLabel = kind === "N" ? "硌马腿" : (kind === "B" ? "蹩象眼" : "");
     ws.send(JSON.stringify({ type: "legal", from: [r, c] }));
     draw();
     return;
@@ -541,6 +529,7 @@ function showCheckToast(text) {
 // ------------------------------ 状态栏 ------------------------------
 function updateUI() {
   const s = state;
+  if (s.players.red && s.players.black) hadBoth = true;
   tagRed.textContent = s.you === 1 ? "你" : "";
   tagBlack.textContent = s.you === 2 ? "你" : "";
 
@@ -553,7 +542,9 @@ function updateUI() {
     if (s.winner === s.you) text = "你赢了！可点「悔棋」继续对局，或「重新开始」再来一局。";
     else text = "你输了。点「重新开始」再来一局。";
   } else if (!(s.players.red && s.players.black)) {
-    text = "等待另一位玩家加入…（把地址发给对方，或再开一个窗口）";
+    text = hadBoth
+      ? "另一位玩家已离开象棋（等待重新加入…）"
+      : "等待另一位玩家加入…（把地址发给对方，或再开一个窗口）";
   } else if (s.turn === s.you) {
     if (s.inCheck) text = "你被将军了！请应将。";
     else text = selected

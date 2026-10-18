@@ -165,9 +165,61 @@ class Room:
         }
 
 
+class LobbyRoom:
+    """选择玩法界面的大厅：最多两名玩家，双方选择相同玩法后才开始。"""
+
+    def __init__(self):
+        self.lock = threading.RLock()
+        self.clients = []
+        self.players = {1: None, 2: None}
+        self.selections = {1: None, 2: None}
+        # 与服务端统一的清理逻辑兼容（大厅不使用该字段）
+        self.restart_votes = {1: False, 2: False}
+
+    def state_for(self, conn):
+        return {
+            "type": "lobby_state",
+            "you": conn.color,
+            "connected": sum(1 for c in self.players.values() if c is not None),
+            "selections": {
+                "1": self.selections[1],
+                "2": self.selections[2],
+            },
+            "players": {
+                "p1": self.players[1] is not None,
+                "p2": self.players[2] is not None,
+            },
+        }
+
+    def handle_select(self, conn, game):
+        if conn.color == 0:
+            conn.send({"type": "error", "message": "观众不能选择玩法"})
+            return
+        if game not in (None, "gomoku", "xiangqi"):
+            conn.send({"type": "error", "message": "未知玩法: %s" % game})
+            return
+        if game is not None and self.selections[conn.color] == game:
+            self.selections[conn.color] = None  # 再点一次 = 取消选择
+        else:
+            self.selections[conn.color] = game
+        broadcast_locked(self)
+
+        if (self.players[1] is not None and self.players[2] is not None
+                and self.selections[1] is not None
+                and self.selections[1] == self.selections[2]):
+            chosen = self.selections[1]
+            for client in (self.players[1], self.players[2]):
+                if client.alive:
+                    client.send({"type": "start", "game": chosen})
+            log(f"[大厅] 双方都选择了 {chosen}，进入对局")
+            self.selections = {1: None, 2: None}
+            broadcast_locked(self)
+
+
 ROOMS = {
     "gomoku": Room(),
     "xiangqi": XiangqiRoom(),
+    "lobby": LobbyRoom(),
 }
 
 
@@ -458,7 +510,7 @@ def handle_message(conn, text):
                 conn.send({"type": "pong"})
             else:
                 conn.send({"type": "error", "message": "未知消息类型: %s" % mtype})
-        else:
+        elif conn.game == "xiangqi":
             if mtype == "move":
                 room.handle_move(conn, msg)
             elif mtype == "restart":
@@ -467,6 +519,13 @@ def handle_message(conn, text):
                 room.handle_undo(conn)
             elif mtype == "legal":
                 room.handle_legal(conn, msg)
+            elif mtype == "ping":
+                conn.send({"type": "pong"})
+            else:
+                conn.send({"type": "error", "message": "未知消息类型: %s" % mtype})
+        else:  # lobby
+            if mtype == "select":
+                room.handle_select(conn, msg.get("game"))
             elif mtype == "ping":
                 conn.send({"type": "pong"})
             else:
@@ -570,6 +629,10 @@ def handle_connection(sock, addr):
                 if room.players.get(2) is conn:
                     room.players[2] = None
                     room.restart_votes[2] = False
+                if conn.color:
+                    selections = getattr(room, "selections", None)
+                    if selections is not None:
+                        selections[conn.color] = None
                 log(f"[-] 离开 {addr[0]} 游戏={conn.game} 颜色={conn.color}")
                 broadcast_locked(room)
         try:

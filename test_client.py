@@ -169,7 +169,7 @@ def test_http_page():
     for page in ("gomoku.html", "xiangqi.html"):
         with urllib.request.urlopen(BASE_URL + page, timeout=TIMEOUT) as resp:
             assert resp.status == 200, "页面 %s 不可访问" % page
-    print("[1/7] 开始界面与两个游戏页     PASS")
+    print("[1/8] 开始界面与两个游戏页     PASS")
 
 
 def test_join_and_colors():
@@ -190,14 +190,14 @@ def test_join_and_colors():
     assert st1["players"] == {"black": True, "white": True}
     assert st2["you"] == 2 and st1["you"] == 1
     assert sum(sum(row) for row in st1["board"]) == 0, "开局棋盘应为空"
-    print("[2/7] 双客户端连接、黑白分配    PASS")
+    print("[2/8] 双客户端连接、黑白分配    PASS")
     return p1, p2
 
 
 def test_out_of_turn(p2):
     p2.send({"type": "move", "row": 7, "col": 7})  # 白棋抢先落子
     expect_error(p2, "轮")
-    print("[3/7] 非本回合落子被拒绝        PASS")
+    print("[3/8] 非本回合落子被拒绝        PASS")
 
 
 def test_win(p1, p2):
@@ -226,7 +226,7 @@ def test_win(p1, p2):
     cells = {(r, c) for r, c in s1["line"]}
     for i in range(5):
         assert (0, i) in cells, "获胜连线缺少 (0, %d)" % i
-    print("[4/7] 五连胜利判定与连线        PASS")
+    print("[4/8] 五连胜利判定与连线        PASS")
 
 
 def test_undo(p1, p2):
@@ -260,7 +260,7 @@ def test_undo(p1, p2):
     expect(p2, "state")
     assert s1["over"] is True and s1["winner"] == 1, "重新落子后应再次判定黑棋获胜"
     assert s1["undoGhost"] is None, "落子后虚影应清除"
-    print("[5/7] 悔棋（仅限自己的棋）与虚影   PASS")
+    print("[5/8] 悔棋（仅限自己的棋）与虚影   PASS")
 
 
 def test_restart(p1, p2):
@@ -290,7 +290,7 @@ def test_restart(p1, p2):
         assert s["over"] is False and s["current"] == 1 and s["lastMove"] is None
         assert s["restartVotes"] == {"black": False, "white": False}
     assert s1["you"] == 2 and s2["you"] == 1, "重开后黑白应交换"
-    print("[6/7] 双方确认后重开与换边      PASS")
+    print("[6/8] 双方确认后重开与换边      PASS")
 
 
 def test_xiangqi():
@@ -360,7 +360,45 @@ def test_xiangqi():
         assert s["turn"] == 1
     q1.close()
     q2.close()
-    print("[7/7] 象棋联机协议与换边        PASS")
+    print("[7/8] 象棋联机协议与换边        PASS")
+
+
+def test_lobby():
+    l1 = WSClient()
+    l1.send({"type": "join", "game": "lobby"})
+    h1 = expect(l1, "hello")
+    assert h1["color"] == 1 and h1["game"] == "lobby", h1
+    s1 = expect(l1, "lobby_state")
+    assert s1["you"] == 1 and s1["connected"] == 1, s1
+
+    l2 = WSClient()
+    l2.send({"type": "join", "game": "lobby"})
+    h2 = expect(l2, "hello")
+    assert h2["color"] == 2, h2
+    s2 = expect(l2, "lobby_state")
+    s1 = expect(l1, "lobby_state")
+    assert s1["connected"] == 2 and s2["connected"] == 2
+    assert s1["selections"] == {"1": None, "2": None}
+
+    # 一方选择玩法：另一方也能看到（用于显示「另一位玩家想玩xxx」）
+    l1.send({"type": "select", "game": "gomoku"})
+    s1 = expect(l1, "lobby_state")
+    s2 = expect(l2, "lobby_state")
+    assert s1["selections"] == {"1": "gomoku", "2": None}, s1["selections"]
+    assert s2["selections"]["1"] == "gomoku"
+
+    # 双方选择同一种玩法 → 双方收到 start 消息
+    l2.send({"type": "select", "game": "gomoku"})
+    s1 = expect(l1, "lobby_state")
+    s2 = expect(l2, "lobby_state")
+    assert s1["selections"] == {"1": "gomoku", "2": "gomoku"}
+    st1 = expect(l1, "start")
+    st2 = expect(l2, "start")
+    assert st1["game"] == "gomoku" and st2["game"] == "gomoku"
+
+    l1.close()
+    l2.close()
+    print("[8/8] 大厅选玩法与开局流程      PASS")
 
 
 def main():
@@ -394,6 +432,7 @@ def main():
         p1.close()
         p2.close()
         test_xiangqi()
+        test_lobby()
     except AssertionError as exc:
         print("\n[FAIL] %s" % exc)
         return 1

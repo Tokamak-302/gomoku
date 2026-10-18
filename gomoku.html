@@ -143,6 +143,7 @@ let prevOver = false;
 let firstState = true;
 let skipSoundOnce = false;
 let undoNotice = null;
+let hadBoth = false;
 
 // ------------------------------ 绘制 ------------------------------
 function pos(i) { return MARGIN + i * GAP; }
@@ -434,6 +435,7 @@ undoBtn.addEventListener("click", () => {
 // ------------------------------ 状态栏 ------------------------------
 function updateUI() {
   const s = state;
+  if (s.players.black && s.players.white) hadBoth = true;
   tagBlack.textContent = s.you === 1 ? "你" : "";
   tagWhite.textContent = s.you === 2 ? "你" : "";
 
@@ -447,7 +449,7 @@ function updateUI() {
     else if (s.winner === s.you) text = "你赢了！可点「悔棋」继续对局，或「重新开始」再来一局。";
     else text = "你输了。点「重新开始」再来一局。";
   } else if (!(s.players.black && s.players.white)) {
-    text = "等待另一位玩家加入…（把地址发给对方，或再开一个窗口）";
+    text = hadBoth ? "另一位玩家已离开五子棋（等待重新加入…）" : "等待另一位玩家加入…（把地址发给对方，或再开一个窗口）";
   } else if (s.current === s.you) {
     text = "轮到你落子（你执" + (s.you === 1 ? "黑" : "白") + "）。";
   } else {
