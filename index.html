@@ -31,16 +31,32 @@
   .card {
     display: block; text-decoration: none; color: inherit;
     background: #1b212c; border: 1px solid #2a3140; border-radius: 16px;
-    padding: 26px 24px; cursor: pointer;
+    padding: 26px 24px; cursor: pointer; position: relative;
     transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
   }
   .card:hover {
     transform: translateY(-4px); border-color: #3d6fd4;
     box-shadow: 0 14px 36px rgba(0,0,0,.45);
   }
-  .card.selected {
-    border-color: #6fa0ff;
-    box-shadow: 0 0 0 2px rgba(111, 160, 255, .6), 0 14px 36px rgba(0,0,0,.45);
+  .card.opp-pick {
+    outline: 2px dashed #ffd34d;
+    outline-offset: 2px;
+  }
+  .card.my-pick {
+    outline: 2px solid #ffd34d;
+    outline-offset: 2px;
+    box-shadow: 0 0 18px rgba(255, 211, 77, .35);
+  }
+  .card.my-pick::after {
+    content: "你已选择";
+    position: absolute;
+    top: -11px;
+    right: 16px;
+    font-size: 12px;
+    color: #ffd34d;
+    background: #1b212c;
+    padding: 0 8px;
+    border-radius: 6px;
   }
   .icon { height: 66px; display: flex; align-items: center; margin-bottom: 16px; }
   .stones { position: relative; width: 80px; height: 66px; }
@@ -126,8 +142,10 @@ function updateUI() {
   const oppKey = s.you === 1 ? "2" : "1";
   const oppSel = s.you ? s.selections[oppKey] : null;
 
-  cardGomoku.classList.toggle("selected", mySel === "gomoku");
-  cardXiangqi.classList.toggle("selected", mySel === "xiangqi");
+  cardGomoku.classList.toggle("my-pick", mySel === "gomoku");
+  cardXiangqi.classList.toggle("my-pick", mySel === "xiangqi");
+  cardGomoku.classList.toggle("opp-pick", oppSel === "gomoku");
+  cardXiangqi.classList.toggle("opp-pick", oppSel === "xiangqi");
 
   let notice = "";
   if (!s.you) {
