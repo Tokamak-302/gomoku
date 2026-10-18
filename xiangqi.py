@@ -263,6 +263,7 @@ class XiangqiRoom:
             "over": self.over,
             "winner": self.winner,
             "lastMove": self.last_move,
+            "inCheck": in_check(self.board, self.turn == RED),
             "you": conn.color,
             "players": {
                 "red": self.players[1] is not None,

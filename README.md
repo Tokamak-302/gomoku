@@ -58,10 +58,11 @@ py -3 gomoku/xiangqi_rules_test.py
 |---|---|---|
 | 落子 | `assets/sounds/place.ogg` | [Kenney Interface Sounds](https://kenney.nl/assets/interface-sounds)（drop_002） |
 | 活三/冲四提示（仅五子棋） | `assets/sounds/threat.wav` | 本项目自制合成音（A5→D6 两声清脆铃铛，模仿"钓鱼上钩"的提示感，零版权风险） |
+| 将军提示（仅象棋） | `assets/sounds/check.wav` | 本项目自制合成音（A6→E6→C6 三音下行，短促警示感，零版权风险） |
 | 胜利 | `assets/sounds/win.ogg` | [Kenney Music Jingles](https://kenney.nl/assets/music-jingles)（jingles_STEEL01，钢鼓风格更欢快；仅获胜方播放） |
 
 两个 Kenney 素材包均为 **CC0 1.0（公有领域）**，可自由商用、无需署名；`threat.wav` 为本项目合成的原创音效。
-中国象棋使用落子音与胜利音（无威胁提示）。
+中国象棋使用落子音、胜利音与将军提示音（`check.wav`，无威胁提示）。
 
 > 版权说明：《星露谷》的「上钩了」音效属于游戏版权素材，不能直接提取并放入公开仓库/线上站点使用。
 > 若你想本地自用替换，可把获得授权的音频命名为 `threat.wav` 替换即可。
@@ -82,6 +83,9 @@ py -3 gomoku/xiangqi_rules_test.py
   兵/卒（过河后可横走、不可后退）、士/仕与将/帅（九宫限制）、将帅不可照面（飞将）；
 - 操作：点击己方棋子（棋子会向上浮起突出显示）→ 服务端返回合法落点（绿点＝走子，红圈＝可吃）→ 点击目标位置落子；
   鼠标悬停在合法落点上时提示点放大，并标出下一步可能反吃该位置的敌方棋子（橙色虚线环）；
+- 视角：**黑方玩家自动翻转棋盘**，使黑方棋子始终在下方；红方与观众默认红方在下；
+- 选择马 / 象时，用紫色虚线环与文字标出正在「硌马腿」/「蹩象眼」的挡子；
+- 任何一方被将军时，播放提示音并弹出「⚔️ 将军了！」文字动画，状态栏同步提示；
 - 悔棋：只能悔自己刚下的一手（恢复被吃的棋子与轮次）；重新开始：双方确认后交换红黑。
 
 ## 联机协议
@@ -118,7 +122,7 @@ WebSocket 建立后，客户端需先发送「加入游戏」消息，再发送�
 - `state`：完整状态快照
   - 五子棋字段：`board`（15×15 数字）、`current`、`over`、`winner`、`line`、`lastMove`、`you`、
     `players`（black/white）、`connected`、`restartVotes`、`undoGhost`、`canUndo`
-  - 象棋字段：`board`（10×9 棋子编码/空）、`turn`、`over`、`winner`、`lastMove`（`{from,to}` 或 null）、
+  - 象棋字段：`board`（10×9 棋子编码/空）、`turn`、`over`、`winner`、`lastMove`（`{from,to}` 或 null）、`inCheck`（轮到走棋的一方是否被将军）、
     `you`、`players`（red/black）、`connected`、`restartVotes`、`canUndo`
 - `legal`（仅象棋，仅发给请求者）：`{ "type": "legal", "from": [r,c], "moves": [[r,c], ...], "captures": {"r,c": "敌方棋子编码"}, "captureBy": {"r,c": [[er,ec], ...]} }`；
   `captures` 标出可吃子的目标位置，`captureBy` 表示走子到该位置后、下一步可能反吃的敌方棋子

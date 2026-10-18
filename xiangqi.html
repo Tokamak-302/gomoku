@@ -25,9 +25,23 @@
   .conn.ok { background: #173527; color: #5fd18b; }
   .conn.bad { background: #3a1f22; color: #ff8a80; }
   main { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
-  .board-wrap { flex: 1 1 540px; display: flex; justify-content: center; min-width: 300px; }
+  .board-wrap { position: relative; flex: 1 1 540px; display: flex; justify-content: center; min-width: 300px; }
   canvas { width: 100%; max-width: 540px; height: auto; display: block;
            border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.45); cursor: pointer; }
+  .toast {
+    position: absolute; left: 50%; top: 16%; transform: translate(-50%, 0);
+    font-size: 36px; font-weight: 800; letter-spacing: 4px;
+    color: #ff6b4a; text-shadow: 0 2px 0 #5a1a00, 0 0 18px rgba(255, 120, 80, .9);
+    opacity: 0; pointer-events: none; white-space: nowrap;
+  }
+  .toast.show { animation: toastPop 1.2s ease-out forwards; }
+  @keyframes toastPop {
+    0%   { opacity: 0; transform: translate(-50%, 14px) scale(.4) rotate(-6deg); }
+    18%  { opacity: 1; transform: translate(-50%, 0) scale(1.12) rotate(2deg); }
+    32%  { transform: translate(-50%, 0) scale(1) rotate(0deg); }
+    70%  { opacity: 1; transform: translate(-50%, -8px) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -30px) scale(.96); }
+  }
   .panel { flex: 0 1 300px; min-width: 260px; display: flex; flex-direction: column; gap: 14px; }
   .players { display: flex; flex-direction: column; gap: 8px; }
   .player { display: flex; align-items: center; gap: 10px; padding: 10px 14px;
@@ -61,7 +75,10 @@
     </div>
   </header>
   <main>
-    <div class="board-wrap"><canvas id="board"></canvas></div>
+    <div class="board-wrap">
+      <canvas id="board"></canvas>
+      <div class="toast" id="checkToast">⚔️ 将军了！</div>
+    </div>
     <aside class="panel">
       <div class="players">
         <div class="player"><span class="dot red"></span>红方<span class="tag" id="tag-red"></span></div>
@@ -113,6 +130,8 @@ const placeSound = new Audio("assets/sounds/place.ogg?v=2");
 placeSound.preload = "auto";
 const winSound = new Audio("assets/sounds/win.ogg?v=2");
 winSound.preload = "auto";
+const checkSound = new Audio("assets/sounds/check.wav");
+checkSound.preload = "auto";
 
 // ------------------------------ 客户端状态 ------------------------------
 function emptyBoard() {
@@ -140,6 +159,10 @@ let prevOver = false;
 let firstState = true;
 let skipSoundOnce = false;
 let undoNotice = null;
+let flipped = false;      // 黑方视角时翻转棋盘
+let prevInCheck = false;
+let blockers = [];        // 马腿 / 象眼挡子
+let blockerLabel = "";
 
 function posX(c) { return MARGIN + c * CELL; }
 function posY(r) { return MARGIN + r * CELL; }
@@ -156,6 +179,49 @@ function clearSelection() {
   captureMap = {};
   captureByMap = {};
   hoverDest = null;
+  blockers = [];
+  blockerLabel = "";
+}
+
+// 显示坐标（黑方视角时 180° 翻转，自己的棋子始终在下方）
+function dispRow(r) { return flipped ? (ROWS - 1 - r) : r; }
+function dispCol(c) { return flipped ? (COLS - 1 - c) : c; }
+
+// 马腿 / 象眼挡子：仅统计"若未被挡就能走"的目标方向上的挡子
+function computeBlockers(piece, r, c) {
+  const red = piece === piece.toUpperCase();
+  const kind = piece.toUpperCase();
+  const out = [];
+  function add(br, bc) {
+    if (br < 0 || br >= ROWS || bc < 0 || bc >= COLS) return;
+    if (state.board[br][bc] === null) return;
+    if (out.some(function (b) { return b.r === br && b.c === bc; })) return;
+    out.push({ r: br, c: bc });
+  }
+  if (kind === "N") {
+    const deltas = [[2, 1], [2, -1], [-2, 1], [-2, -1], [1, 2], [1, -2], [-1, 2], [-1, -2]];
+    for (const d of deltas) {
+      const tr = r + d[0], tc = c + d[1];
+      if (tr < 0 || tr >= ROWS || tc < 0 || tc >= COLS) continue;
+      const t = state.board[tr][tc];
+      if (t !== null && t.isupper() === red) continue;
+      const legR = (Math.abs(d[0]) === 2) ? (r + d[0] / 2) : r;
+      const legC = (Math.abs(d[0]) === 2) ? c : (c + d[1] / 2);
+      add(legR, legC);
+    }
+  } else if (kind === "B") {
+    const deltas = [[2, 2], [2, -2], [-2, 2], [-2, -2]];
+    for (const d of deltas) {
+      const tr = r + d[0], tc = c + d[1];
+      if (tr < 0 || tr >= ROWS || tc < 0 || tc >= COLS) continue;
+      if (red && tr < 5) continue;
+      if ((!red) && tr > 4) continue;
+      const t = state.board[tr][tc];
+      if (t !== null && t.isupper() === red) continue;
+      add(r + d[0] / 2, c + d[1] / 2);
+    }
+  }
+  return out;
 }
 
 // ------------------------------ 绘制 ------------------------------
@@ -217,7 +283,7 @@ function drawGrid() {
 }
 
 function drawPiece(r, c, piece, dy) {
-  const x = posX(c), y = posY(r) + (dy || 0);
+  const x = posX(dispCol(c)), y = posY(dispRow(r)) + (dy || 0);
   const rad = CELL * 0.42;
   const red = piece === piece.toUpperCase();
 
@@ -269,7 +335,7 @@ function draw() {
         const hovered = hoverKey === key;
         ctx.save();
         ctx.beginPath();
-        ctx.arc(posX(mv.c), posY(mv.r), CELL * 0.44 + (hovered ? 6 : 2), 0, Math.PI * 2);
+        ctx.arc(posX(dispCol(mv.c)), posY(dispRow(mv.r)), CELL * 0.44 + (hovered ? 6 : 2), 0, Math.PI * 2);
         ctx.strokeStyle = hovered ? "rgba(255, 60, 50, 1)" : "rgba(230, 60, 50, .95)";
         ctx.lineWidth = hovered ? 4.5 : 2.5;
         ctx.shadowColor = "rgba(255, 70, 50, .8)";
@@ -280,7 +346,7 @@ function draw() {
         const hovered = hoverKey === key;
         ctx.save();
         ctx.beginPath();
-        ctx.arc(posX(mv.c), posY(mv.r), hovered ? CELL * 0.2 : CELL * 0.11, 0, Math.PI * 2);
+        ctx.arc(posX(dispCol(mv.c)), posY(dispRow(mv.r)), hovered ? CELL * 0.2 : CELL * 0.11, 0, Math.PI * 2);
         ctx.fillStyle = hovered ? "rgba(80, 230, 140, 1)" : "rgba(60, 180, 120, .85)";
         if (hovered) {
           ctx.shadowColor = "rgba(80, 230, 140, .9)";
@@ -305,10 +371,38 @@ function draw() {
   // 选中标记（跟随抬起的棋子）
   if (selected) {
     ctx.beginPath();
-    ctx.arc(posX(selected.c), posY(selected.r) + lift, CELL * 0.46, 0, Math.PI * 2);
+    ctx.arc(posX(dispCol(selected.c)), posY(dispRow(selected.r)) + lift, CELL * 0.46, 0, Math.PI * 2);
     ctx.strokeStyle = "rgba(255, 170, 60, .95)";
     ctx.lineWidth = 3;
     ctx.stroke();
+  }
+
+  // 马腿 / 象眼挡子提示
+  if (selected && blockers.length) {
+    for (const b of blockers) {
+      const bx = posX(dispCol(b.c));
+      const by = posY(dispRow(b.r));
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(bx, by, CELL * 0.44 + 4, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(170, 120, 255, .95)";
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([5, 4]);
+      ctx.shadowColor = "rgba(170, 120, 255, .8)";
+      ctx.shadowBlur = 8;
+      ctx.stroke();
+      ctx.restore();
+      ctx.save();
+      ctx.font = "bold 11px 'Microsoft YaHei', sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "rgba(25, 10, 40, .9)";
+      ctx.strokeText(blockerLabel, bx, by - CELL * 0.5 - 2);
+      ctx.fillStyle = "rgba(200, 160, 255, 1)";
+      ctx.fillText(blockerLabel, bx, by - CELL * 0.5 - 2);
+      ctx.restore();
+    }
   }
 
   // 悬停合法落点：标出下一步可能反吃该位置的敌方棋子
@@ -316,7 +410,7 @@ function draw() {
     for (const at of captureByMap[hoverKey]) {
       ctx.save();
       ctx.beginPath();
-      ctx.arc(posX(at[1]), posY(at[0]), CELL * 0.42 + 5, 0, Math.PI * 2);
+      ctx.arc(posX(dispCol(at[1])), posY(dispRow(at[0])), CELL * 0.42 + 5, 0, Math.PI * 2);
       ctx.strokeStyle = "rgba(255, 110, 40, .95)";
       ctx.lineWidth = 3;
       ctx.setLineDash([5, 4]);
@@ -329,16 +423,18 @@ function draw() {
 
   if (state.lastMove) {
     const f = state.lastMove.from, t = state.lastMove.to;
+    const fx = posX(dispCol(f[1])), fy = posY(dispRow(f[0]));
+    const tx = posX(dispCol(t[1])), ty = posY(dispRow(t[0]));
     ctx.save();
     ctx.setLineDash([4, 4]);
     ctx.strokeStyle = "rgba(226, 72, 61, .8)";
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(posX(f[1]), posY(f[0]), CELL * 0.3, 0, Math.PI * 2);
+    ctx.arc(fx, fy, CELL * 0.3, 0, Math.PI * 2);
     ctx.stroke();
     ctx.restore();
     ctx.beginPath();
-    ctx.arc(posX(t[1]), posY(t[0]), CELL * 0.46, 0, Math.PI * 2);
+    ctx.arc(tx, ty, CELL * 0.46, 0, Math.PI * 2);
     ctx.strokeStyle = "rgba(226, 72, 61, .9)";
     ctx.lineWidth = 2;
     ctx.stroke();
@@ -355,7 +451,7 @@ function toCell(evt) {
   if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return null;
   const dx = x - posX(c), dy = y - posY(r);
   if (Math.hypot(dx, dy) > CELL * 0.6) return null;
-  return { r, c };
+  return { r: flipped ? ROWS - 1 - r : r, c: flipped ? COLS - 1 - c : c };
 }
 
 canvas.addEventListener("click", (evt) => {
@@ -383,6 +479,9 @@ canvas.addEventListener("click", (evt) => {
     captureMap = {};
     captureByMap = {};
     hoverDest = null;
+    const kind = piece.toUpperCase();
+    blockers = (kind === "N" || kind === "B") ? computeBlockers(piece, r, c) : [];
+    blockerLabel = kind === "N" ? "硌马腿" : (kind === "B" ? "蹩象眼" : "");
     ws.send(JSON.stringify({ type: "legal", from: [r, c] }));
     draw();
     return;
@@ -429,6 +528,16 @@ function playSound(audio, delayMs) {
   }, delayMs || 0);
 }
 
+// ------------------------------ 「将军了！」文字动画 ------------------------------
+const checkToastEl = document.getElementById("checkToast");
+
+function showCheckToast(text) {
+  checkToastEl.textContent = text;
+  checkToastEl.classList.remove("show");
+  void checkToastEl.offsetWidth; // 强制重排以重新触发动画
+  checkToastEl.classList.add("show");
+}
+
 // ------------------------------ 状态栏 ------------------------------
 function updateUI() {
   const s = state;
@@ -446,11 +555,12 @@ function updateUI() {
   } else if (!(s.players.red && s.players.black)) {
     text = "等待另一位玩家加入…（把地址发给对方，或再开一个窗口）";
   } else if (s.turn === s.you) {
-    text = selected
+    if (s.inCheck) text = "你被将军了！请应将。";
+    else text = selected
       ? "已选中棋子：绿点＝可走，红圈＝可吃；悬停落点可预览对方反吃。"
       : "轮到你走棋（你执" + (s.you === 1 ? "红方" : "黑方") + "）。";
   } else {
-    text = "等待对方走棋…";
+    text = s.inCheck ? "对方被将军了！" : "等待对方走棋…";
   }
 
   statusEl.textContent = text;
@@ -503,6 +613,7 @@ function connect() {
     firstState = true;
     prevMoveKey = "";
     prevOver = false;
+    prevInCheck = false;
     setConn("已连接", "ok");
     ws.send(JSON.stringify({ type: "join", game: "xiangqi" }));
   };
@@ -511,6 +622,7 @@ function connect() {
     let msg;
     try { msg = JSON.parse(evt.data); } catch (err) { return; }
     if (msg.type === "state") {
+      const wasFirst = firstState;
       const key = msg.lastMove ? JSON.stringify(msg.lastMove) : "";
       if (!firstState) {
         if (skipSoundOnce) {
@@ -520,9 +632,16 @@ function connect() {
           if (msg.over && !prevOver && msg.winner === msg.you) playSound(winSound, 250);
         }
       }
+      const inCheck = !!msg.inCheck;
+      if (!wasFirst && inCheck && !prevInCheck && !msg.over) {
+        playSound(checkSound, 140);
+        showCheckToast("⚔️ 将军了！");
+      }
+      prevInCheck = inCheck;
       firstState = false;
       prevMoveKey = key;
       prevOver = msg.over;
+      flipped = (msg.you === 2);
       clearSelection();
       state = msg;
       draw();

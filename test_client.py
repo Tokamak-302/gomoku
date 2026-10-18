@@ -302,6 +302,7 @@ def test_xiangqi():
     assert s1["game"] == "xiangqi" and s1["turn"] == 1, "红方应先行"
     assert s1["board"][6][0] == "P" and s1["board"][9][4] == "K", "初始局面异常"
     assert s1["board"][0][4] == "k"
+    assert s1["inCheck"] is False, "开局不应被将军"
 
     q2 = WSClient()
     q2.send({"type": "join", "game": "xiangqi"})
