@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""五子棋 · 联机版（纯标准库，零依赖；单端口同时提供页面与 WebSocket）
+"""棋类对战 · 联机版（五子棋 / 中国象棋，纯标准库，零依赖；单端口同时提供页面与 WebSocket）
 
 本机运行:
     py -3 server.py
-浏览器打开 http://127.0.0.1:8000，再开一个窗口即可联机对弈。
+浏览器打开 http://127.0.0.1:8000，选择玩法后开两个窗口即可联机对弈。
 
 部署到 Render / Railway 等平台时:
     - 平台会注入环境变量 PORT，程序自动监听 0.0.0.0:$PORT；
@@ -20,6 +20,8 @@ import struct
 import sys
 import threading
 from pathlib import Path
+
+from xiangqi import XiangqiRoom
 
 BOARD_SIZE = 15
 STATIC_DIR = Path(__file__).resolve().parent
@@ -83,11 +85,12 @@ def check_win(board, row, col, color):
 class PlayerConn:
     """一条客户端连接。"""
 
-    def __init__(self, sock, addr, room):
+    def __init__(self, sock, addr):
         self.sock = sock
         self.addr = addr
-        self.room = room
-        self.color = 0  # 0=观众, 1=黑, 2=白
+        self.room = None        # 加入对局后指向对应的 Room
+        self.game = None        # "gomoku" / "xiangqi"
+        self.color = 0          # 0=观众；1/2 由具体游戏解释
         self.send_lock = threading.Lock()
         self.alive = True
 
@@ -162,7 +165,10 @@ class Room:
         }
 
 
-ROOM = Room()
+ROOMS = {
+    "gomoku": Room(),
+    "xiangqi": XiangqiRoom(),
+}
 
 
 def broadcast_locked(room):
@@ -262,7 +268,8 @@ def serve_http_request(sock, method, path, headers):
     except ValueError:
         inside = False
     # 只开放页面本身与 assets/ 下的静态资源（音效、威胁检测脚本等）
-    allowed = inside and (rel == "index.html" or rel.startswith("assets/")) \
+    pages = ("index.html", "gomoku.html", "xiangqi.html")
+    allowed = inside and (rel in pages or rel.startswith("assets/")) \
         and target.is_file()
 
     if not allowed:
@@ -393,6 +400,32 @@ def handle_undo(conn):
     broadcast_locked(room)
 
 
+def join_game(conn, game):
+    """加入指定游戏的房间：前两名玩家分到 1/2 号位，之后为观众。"""
+    if conn.room is not None:
+        conn.send({"type": "error", "message": "已经加入对局，不能重复加入"})
+        return
+    room = ROOMS.get(game)
+    if room is None:
+        conn.send({"type": "error", "message": "未知游戏: %s" % game})
+        return
+    with room.lock:
+        room.clients.append(conn)
+        if room.players[1] is None:
+            conn.color = 1
+            room.players[1] = conn
+        elif room.players[2] is None:
+            conn.color = 2
+            room.players[2] = conn
+        else:
+            conn.color = 0  # 观众
+        conn.room = room
+        conn.game = game
+        log(f"[+] 加入 {conn.addr[0]} 游戏={game} 颜色={conn.color}")
+        conn.send({"type": "hello", "color": conn.color, "game": game})
+        broadcast_locked(room)
+
+
 def handle_message(conn, text):
     try:
         msg = json.loads(text)
@@ -403,18 +436,41 @@ def handle_message(conn, text):
         conn.send({"type": "error", "message": "消息格式错误"})
         return
     mtype = msg.get("type")
+
+    if mtype == "join":
+        join_game(conn, msg.get("game"))
+        return
+
     room = conn.room
+    if room is None:
+        conn.send({"type": "error", "message": "请先选择游戏（发送 join 消息）"})
+        return
+
     with room.lock:
-        if mtype == "move":
-            handle_move(conn, msg)
-        elif mtype == "restart":
-            handle_restart(conn)
-        elif mtype == "undo":
-            handle_undo(conn)
-        elif mtype == "ping":
-            conn.send({"type": "pong"})
+        if conn.game == "gomoku":
+            if mtype == "move":
+                handle_move(conn, msg)
+            elif mtype == "restart":
+                handle_restart(conn)
+            elif mtype == "undo":
+                handle_undo(conn)
+            elif mtype == "ping":
+                conn.send({"type": "pong"})
+            else:
+                conn.send({"type": "error", "message": "未知消息类型: %s" % mtype})
         else:
-            conn.send({"type": "error", "message": "未知消息类型: %s" % mtype})
+            if mtype == "move":
+                room.handle_move(conn, msg)
+            elif mtype == "restart":
+                room.handle_restart(conn)
+            elif mtype == "undo":
+                room.handle_undo(conn)
+            elif mtype == "legal":
+                room.handle_legal(conn, msg)
+            elif mtype == "ping":
+                conn.send({"type": "pong"})
+            else:
+                conn.send({"type": "error", "message": "未知消息类型: %s" % mtype})
 
 
 # ---------------------------------------------------------------------------
@@ -460,10 +516,9 @@ def frame_loop(sock, conn):
         raise ConnectionError("不支持的帧类型: %d" % opcode)
 
 
-def handle_connection(sock, addr, room):
+def handle_connection(sock, addr):
     """单端口分发：带 Upgrade 头的走 WebSocket，其余按 HTTP 页面处理。"""
-    conn = PlayerConn(sock, addr, room)
-    registered = False
+    conn = PlayerConn(sock, addr)
     try:
         sock.settimeout(10)
         raw = read_until(sock, b"\r\n\r\n")
@@ -497,21 +552,6 @@ def handle_connection(sock, addr, room):
                 "Sec-WebSocket-Accept: %s\r\n\r\n" % accept
             ).encode("latin-1"))
 
-            with room.lock:
-                room.clients.append(conn)
-                if room.players[1] is None:
-                    conn.color = 1
-                    room.players[1] = conn
-                elif room.players[2] is None:
-                    conn.color = 2
-                    room.players[2] = conn
-                else:
-                    conn.color = 0  # 观众
-                registered = True
-                log(f"[+] 连接 {addr[0]} 身份={COLOR_NAMES[conn.color]}")
-                conn.send({"type": "hello", "color": conn.color})
-                broadcast_locked(room)
-
             frame_loop(sock, conn)
         else:
             serve_http_request(sock, method, path, headers)
@@ -519,7 +559,8 @@ def handle_connection(sock, addr, room):
         pass
     finally:
         conn.alive = False
-        if registered:
+        room = conn.room
+        if room is not None:
             with room.lock:
                 if conn in room.clients:
                     room.clients.remove(conn)
@@ -529,8 +570,7 @@ def handle_connection(sock, addr, room):
                 if room.players.get(2) is conn:
                     room.players[2] = None
                     room.restart_votes[2] = False
-                if conn.color:
-                    log(f"[-] 离开 {addr[0]} 身份={COLOR_NAMES[conn.color]}")
+                log(f"[-] 离开 {addr[0]} 游戏={conn.game} 颜色={conn.color}")
                 broadcast_locked(room)
         try:
             sock.close()
@@ -548,7 +588,7 @@ class WSServer(socketserver.ThreadingTCPServer):
 
 class WSHandler(socketserver.BaseRequestHandler):
     def handle(self):
-        handle_connection(self.request, self.client_address, ROOM)
+        handle_connection(self.request, self.client_address)
 
 
 def main():
@@ -561,7 +601,7 @@ def main():
 
     shown = "127.0.0.1" if HOST == "0.0.0.0" else HOST
     log("=" * 52)
-    log(" 五子棋 · 联机服务已启动（单端口：页面 + WebSocket）")
+    log(" 棋类对战 · 联机服务已启动（五子棋 / 中国象棋）")
     log(f" 本机访问 : http://{shown}:{PORT}")
     log(" 部署平台 : 自动使用环境变量 PORT / HOST")
     log(" 停止     : 按 Ctrl+C")

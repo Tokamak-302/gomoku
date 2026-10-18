@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>五子棋 · 本机联机验证</title>
+<title>棋类对战 · 选择玩法</title>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -14,563 +14,69 @@
     display: flex; align-items: center; justify-content: center;
     padding: 24px;
   }
-  .app { width: 100%; max-width: 1060px; }
-  header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 16px; }
-  h1 { margin: 0; font-size: 24px; letter-spacing: 2px; font-weight: 600; }
-  h1 small { font-size: 12px; color: #8f9bb0; letter-spacing: 0; margin-left: 10px; font-weight: 400; }
-  .conn { font-size: 13px; padding: 4px 12px; border-radius: 999px; background: #2a3140; color: #9fb0c9; }
-  .conn.ok { background: #173527; color: #5fd18b; }
-  .conn.bad { background: #3a1f22; color: #ff8a80; }
-  main { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
-  .board-wrap { position: relative; flex: 1 1 560px; display: flex; justify-content: center; min-width: 300px; }
-  canvas { width: 100%; max-width: 640px; height: auto; display: block;
-           border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.45); cursor: pointer; }
-  .toast {
-    position: absolute; left: 50%; top: 14%; transform: translate(-50%, 0);
-    font-size: 38px; font-weight: 800; letter-spacing: 4px;
-    color: #ffd34d; text-shadow: 0 2px 0 #7a4a00, 0 0 18px rgba(255, 210, 80, .9);
-    opacity: 0; pointer-events: none; white-space: nowrap;
+  .app { width: 100%; max-width: 860px; }
+  h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: 4px; text-align: center; font-weight: 700; }
+  .sub { margin: 0 0 34px; text-align: center; color: #8f9bb0; font-size: 14px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
+  .card {
+    display: block; text-decoration: none; color: inherit;
+    background: #1b212c; border: 1px solid #2a3140; border-radius: 16px;
+    padding: 26px 24px; transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
   }
-  .toast.show { animation: toastPop 1.3s ease-out forwards; }
-  @keyframes toastPop {
-    0%   { opacity: 0; transform: translate(-50%, 14px) scale(.4) rotate(-6deg); }
-    18%  { opacity: 1; transform: translate(-50%, 0) scale(1.12) rotate(2deg); }
-    32%  { transform: translate(-50%, 0) scale(1) rotate(0deg); }
-    70%  { opacity: 1; transform: translate(-50%, -8px) scale(1); }
-    100% { opacity: 0; transform: translate(-50%, -30px) scale(.96); }
+  .card:hover {
+    transform: translateY(-4px); border-color: #3d6fd4;
+    box-shadow: 0 14px 36px rgba(0,0,0,.45);
   }
-  .panel { flex: 0 1 300px; min-width: 260px; display: flex; flex-direction: column; gap: 14px; }
-  .players { display: flex; flex-direction: column; gap: 8px; }
-  .player { display: flex; align-items: center; gap: 10px; padding: 10px 14px;
-            background: #1b212c; border-radius: 10px; font-size: 14px; }
-  .dot { width: 16px; height: 16px; border-radius: 50%; flex: none; }
-  .dot.black { background: radial-gradient(circle at 35% 30%, #666, #111); }
-  .dot.white { background: radial-gradient(circle at 35% 30%, #fff, #c9c9c9); }
-  .tag { margin-left: auto; font-size: 12px; color: #f0c060; }
-  .status { padding: 14px 16px; background: #1b212c; border-radius: 10px;
-            font-size: 15px; line-height: 1.5; min-height: 52px; }
-  .status.bad { color: #ff8a80; }
-  button { padding: 12px; border: 0; border-radius: 10px; font-size: 15px; cursor: pointer;
-           background: #3d6fd4; color: #fff; font-weight: 600; }
-  button:disabled { opacity: .45; cursor: not-allowed; }
-  button:hover:not(:disabled) { background: #4a80ec; }
-  button.secondary { background: #2a3140; color: #cfd6e2; }
-  button.secondary:hover:not(:disabled) { background: #364050; }
-  button.highlight { box-shadow: 0 0 0 2px #ffd34d, 0 0 16px rgba(255, 211, 77, .6); }
-  .actions { display: flex; gap: 8px; }
-  .actions button { flex: 1; }
-  .hint { color: #8f9bb0; font-size: 12px; line-height: 1.7; margin: 0; }
+  .icon { height: 66px; display: flex; align-items: center; margin-bottom: 16px; }
+  .stones { position: relative; width: 80px; height: 66px; }
+  .stone { position: absolute; width: 36px; height: 36px; border-radius: 50%; }
+  .stone.b { background: radial-gradient(circle at 35% 30%, #666, #111); }
+  .stone.w { background: radial-gradient(circle at 35% 30%, #fff, #c9c9c9); }
+  .stones .s1 { left: 0; top: 16px; }
+  .stones .s2 { left: 22px; top: 2px; }
+  .stones .s3 { left: 44px; top: 16px; }
+  .xq { display: flex; gap: 8px; }
+  .xq span {
+    width: 36px; height: 36px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 17px; font-weight: 700;
+    border: 2px solid #8a4a2a; background: #f6e6c0; color: #b22222;
+    font-family: "KaiTi", "STKaiti", "SimSun", serif;
+  }
+  .xq span.dark { color: #222; }
+  h2 { margin: 0 0 8px; font-size: 20px; }
+  p { margin: 0 0 16px; color: #9fb0c9; font-size: 13px; line-height: 1.7; }
+  .go { color: #6fa0ff; font-size: 14px; font-weight: 600; }
 </style>
 </head>
 <body>
 <div class="app">
-  <header>
-    <h1>五子棋 <small>本机联机验证</small></h1>
-    <div class="conn" id="conn">连接中…</div>
-  </header>
-  <main>
-    <div class="board-wrap">
-      <canvas id="board"></canvas>
-      <div class="toast" id="toast">🎣 上钩了！</div>
-    </div>
-    <aside class="panel">
-      <div class="players">
-        <div class="player"><span class="dot black"></span>黑棋<span class="tag" id="tag-black"></span></div>
-        <div class="player"><span class="dot white"></span>白棋<span class="tag" id="tag-white"></span></div>
+  <h1>棋类对战</h1>
+  <p class="sub">选择一种玩法开始 · 开两个窗口即可联机对弈</p>
+  <div class="cards">
+    <a class="card" href="gomoku.html">
+      <div class="icon">
+        <div class="stones">
+          <div class="stone b s1"></div>
+          <div class="stone w s2"></div>
+          <div class="stone b s3"></div>
+        </div>
       </div>
-      <div class="status" id="status">正在连接服务器…</div>
-      <div class="actions">
-        <button id="undo" class="secondary" disabled>悔棋</button>
-        <button id="restart" disabled>重新开始（双方交换黑白）</button>
+      <h2>五子棋</h2>
+      <p>15×15 棋盘 · 连五获胜 · 活三/冲四提示 · 悔棋 · 双方确认重开</p>
+      <span class="go">开始对局 →</span>
+    </a>
+    <a class="card" href="xiangqi.html">
+      <div class="icon">
+        <div class="xq">
+          <span>車</span><span>馬</span><span class="dark">砲</span><span>兵</span>
+        </div>
       </div>
-      <p class="hint">
-        本机验证：<b>再打开一个浏览器窗口</b>访问同一地址，两个窗口即可对弈。<br>
-        黑棋先行，任意一方先连成五子获胜。
-      </p>
-    </aside>
-  </main>
+      <h2>中国象棋</h2>
+      <p>9×10 棋盘 · 红方先行 · 将死获胜 · 悔棋 · 双方确认重开</p>
+      <span class="go">开始对局 →</span>
+    </a>
+  </div>
 </div>
-<script src="assets/threats.js?v=2"></script>
-<script>
-"use strict";
-
-// ------------------------------ 基础常量 ------------------------------
-const N = 15;                 // 15×15 棋盘
-const SIZE = 640;             // 逻辑画布尺寸（CSS 像素）
-const MARGIN = 40;            // 棋盘边距
-const GAP = (SIZE - MARGIN * 2) / (N - 1);   // 交叉点间距
-const STARS = [[3, 3], [3, 11], [7, 7], [11, 3], [11, 11]];
-
-const canvas = document.getElementById("board");
-const ctx = canvas.getContext("2d");
-const dpr = window.devicePixelRatio || 1;
-canvas.width = SIZE * dpr;
-canvas.height = SIZE * dpr;
-ctx.scale(dpr, dpr);
-
-const connEl = document.getElementById("conn");
-const statusEl = document.getElementById("status");
-const tagBlack = document.getElementById("tag-black");
-const tagWhite = document.getElementById("tag-white");
-const restartBtn = document.getElementById("restart");
-const undoBtn = document.getElementById("undo");
-
-const placeSound = new Audio("assets/sounds/place.ogg?v=2");
-placeSound.preload = "auto";
-const winSound = new Audio("assets/sounds/win.ogg?v=2");
-winSound.preload = "auto";
-const threatSound = new Audio("assets/sounds/threat.wav?v=2");
-threatSound.preload = "auto";
-
-// ------------------------------ 客户端状态 ------------------------------
-function emptyState() {
-  return {
-    board: Array.from({ length: N }, () => Array(N).fill(0)),
-    current: 1, over: false, winner: null, line: [], lastMove: null,
-    you: 0, players: { black: false, white: false }, connected: 0,
-    restartVotes: { black: false, white: false }
-  };
-}
-let state = emptyState();
-let hover = null;
-let ws = null;
-let flashTimer = null;
-let prevLastMove = null;
-let prevOver = false;
-let firstState = true;
-let skipSoundOnce = false;
-let undoNotice = null;
-
-// ------------------------------ 绘制 ------------------------------
-function pos(i) { return MARGIN + i * GAP; }
-
-function drawStone(r, c, color, alpha) {
-  const x = pos(c), y = pos(r);
-  const rad = GAP * 0.42;
-  ctx.save();
-  if (alpha !== undefined) ctx.globalAlpha = alpha;
-  ctx.shadowColor = "rgba(0,0,0,.35)";
-  ctx.shadowBlur = 6;
-  ctx.shadowOffsetY = 2;
-
-  const grad = ctx.createRadialGradient(x - rad * 0.35, y - rad * 0.35, rad * 0.1, x, y, rad);
-  if (color === 1) {
-    grad.addColorStop(0, "#6b6b6b");
-    grad.addColorStop(0.35, "#303030");
-    grad.addColorStop(1, "#050505");
-  } else {
-    grad.addColorStop(0, "#ffffff");
-    grad.addColorStop(0.6, "#f2f2f2");
-    grad.addColorStop(1, "#c8c8c8");
-  }
-  ctx.beginPath();
-  ctx.arc(x, y, rad, 0, Math.PI * 2);
-  ctx.fillStyle = grad;
-  ctx.fill();
-  ctx.restore();
-
-  ctx.beginPath();
-  ctx.arc(x, y, rad - 0.8, 0, Math.PI * 2);
-  ctx.strokeStyle = color === 1 ? "rgba(0,0,0,.6)" : "rgba(120,120,120,.7)";
-  ctx.lineWidth = 0.8;
-  ctx.stroke();
-}
-
-function drawWinLine() {
-  const pts = state.line;
-  if (!pts || pts.length < 5) return;
-  const a = pts[0], b = pts[pts.length - 1];
-  ctx.save();
-  ctx.strokeStyle = "rgba(255, 190, 40, .95)";
-  ctx.lineWidth = 5;
-  ctx.lineCap = "round";
-  ctx.shadowColor = "rgba(255, 190, 40, .8)";
-  ctx.shadowBlur = 12;
-  ctx.beginPath();
-  ctx.moveTo(pos(a[1]), pos(a[0]));
-  ctx.lineTo(pos(b[1]), pos(b[0]));
-  ctx.stroke();
-  ctx.restore();
-}
-
-function draw() {
-  ctx.clearRect(0, 0, SIZE, SIZE);
-
-  // 木质底色
-  const bg = ctx.createLinearGradient(0, 0, SIZE, SIZE);
-  bg.addColorStop(0, "#e6c08a");
-  bg.addColorStop(0.5, "#dda96b");
-  bg.addColorStop(1, "#c98f52");
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, SIZE, SIZE);
-
-  // 木纹线条
-  ctx.strokeStyle = "rgba(120,80,40,.08)";
-  ctx.lineWidth = 1;
-  for (let i = 0; i < 24; i++) {
-    const y = i * 28 + 7;
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.bezierCurveTo(SIZE * 0.3, y + 7, SIZE * 0.7, y - 7, SIZE, y + 2);
-    ctx.stroke();
-  }
-
-  // 网格
-  ctx.strokeStyle = "rgba(70,45,20,.75)";
-  ctx.lineWidth = 1;
-  for (let i = 0; i < N; i++) {
-    ctx.beginPath(); ctx.moveTo(pos(i), pos(0)); ctx.lineTo(pos(i), pos(N - 1)); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(pos(0), pos(i)); ctx.lineTo(pos(N - 1), pos(i)); ctx.stroke();
-  }
-
-  // 星位
-  ctx.fillStyle = "rgba(70,45,20,.8)";
-  for (const [r, c] of STARS) {
-    ctx.beginPath();
-    ctx.arc(pos(c), pos(r), 3.2, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // 坐标
-  ctx.fillStyle = "rgba(90,60,30,.55)";
-  ctx.font = "11px Consolas, monospace";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  for (let i = 0; i < N; i++) {
-    ctx.fillText(String.fromCharCode(65 + i), pos(i), MARGIN - 22);
-    ctx.fillText(String(i + 1), MARGIN - 24, pos(i));
-  }
-
-  // 棋子
-  for (let r = 0; r < N; r++) {
-    for (let c = 0; c < N; c++) {
-      const v = state.board[r][c];
-      if (v) drawStone(r, c, v);
-    }
-  }
-
-  // 最后一手标记
-  if (state.lastMove) {
-    const [lr, lc] = state.lastMove;
-    ctx.beginPath();
-    ctx.arc(pos(lc), pos(lr), GAP * 0.42 + 2, 0, Math.PI * 2);
-    ctx.strokeStyle = "#e2483d";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-  }
-
-  // 悔棋虚影（被悔掉棋子的位置）
-  if (state.undoGhost && !state.over) drawUndoGhost();
-
-  // 活三 / 冲四 连线提示（盖在棋子上方，向外延伸半格）
-  if (!state.over) drawThreatLines();
-
-  // 获胜连线
-  drawWinLine();
-
-  // 悬停放子预览
-  if (hover && !state.over && state.you && state.you === state.current
-      && !state.board[hover.r][hover.c]) {
-    drawStone(hover.r, hover.c, state.you, 0.35);
-  }
-}
-
-// ------------------------------ 音效 ------------------------------
-function playSound(audio, delayMs) {
-  window.setTimeout(function () {
-    try {
-      audio.currentTime = 0;
-      const p = audio.play();
-      if (p && p.catch) p.catch(function () { /* 自动播放被拦截时忽略 */ });
-    } catch (err) {
-      /* 忽略 */
-    }
-  }, delayMs || 0);
-}
-
-// ------------------------------ 「上钩了！」文字动画 ------------------------------
-const toastEl = document.getElementById("toast");
-
-function showToast(text) {
-  toastEl.textContent = text;
-  toastEl.classList.remove("show");
-  void toastEl.offsetWidth; // 强制重排以重新触发动画
-  toastEl.classList.add("show");
-}
-
-// ------------------------------ 悔棋虚影 ------------------------------
-// 被悔掉的棋子位置：半透明棋子 + 橙色虚线环
-function drawUndoGhost() {
-  const g = state.undoGhost;
-  const x = pos(g.col), y = pos(g.row), rad = GAP * 0.42;
-  ctx.save();
-  ctx.globalAlpha = 0.3;
-  const grad = ctx.createRadialGradient(x - rad * 0.35, y - rad * 0.35, rad * 0.1, x, y, rad);
-  if (g.color === 1) {
-    grad.addColorStop(0, "#5a5a5a");
-    grad.addColorStop(1, "#111111");
-  } else {
-    grad.addColorStop(0, "#ffffff");
-    grad.addColorStop(0.7, "#e8e8e8");
-    grad.addColorStop(1, "#bdbdbd");
-  }
-  ctx.beginPath();
-  ctx.arc(x, y, rad, 0, Math.PI * 2);
-  ctx.fillStyle = grad;
-  ctx.fill();
-  ctx.restore();
-
-  ctx.save();
-  ctx.setLineDash([5, 4]);
-  ctx.strokeStyle = "rgba(255, 170, 60, .95)";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.arc(x, y, rad + 3, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.restore();
-}
-
-// ------------------------------ 威胁连线提示 ------------------------------
-// 活三：蓝色粗虚线；冲四（含跳四/活四）：橙色粗实线
-// 绘制在棋子之上，并向两端各延伸半格
-function drawThreatLines() {
-  const threats = findThreats(state.board, N);
-  const ext = GAP * 0.5;
-  for (const th of threats) {
-    if (th.cells.length < 2) continue;
-    const a = th.cells[0];
-    const b = th.cells[th.cells.length - 1];
-    const sx = Math.sign(b[1] - a[1]);
-    const sy = Math.sign(b[0] - a[0]);
-    const x1 = pos(a[1]) - sx * ext;
-    const y1 = pos(a[0]) - sy * ext;
-    const x2 = pos(b[1]) + sx * ext;
-    const y2 = pos(b[0]) + sy * ext;
-
-    ctx.save();
-    ctx.lineCap = "round";
-    ctx.setLineDash([]);
-
-    // 深色衬底：保证在木纹和黑白棋子上都清晰可见
-    ctx.strokeStyle = "rgba(12, 8, 2, .5)";
-    ctx.lineWidth = 9;
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
-
-    ctx.shadowBlur = 12;
-    if (th.type === "three") {
-      ctx.strokeStyle = "rgba(80, 205, 255, 1)";
-      ctx.lineWidth = 4.5;
-      ctx.setLineDash([9, 6]);
-      ctx.shadowColor = "rgba(80, 205, 255, .9)";
-    } else {
-      ctx.strokeStyle = "rgba(255, 118, 45, 1)";
-      ctx.lineWidth = 5;
-      ctx.setLineDash([]);
-      ctx.shadowColor = "rgba(255, 118, 45, .9)";
-    }
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
-    ctx.restore();
-  }
-}
-
-// ------------------------------ 交互 ------------------------------
-function toCell(evt) {
-  const rect = canvas.getBoundingClientRect();
-  const x = (evt.clientX - rect.left) * (SIZE / rect.width);
-  const y = (evt.clientY - rect.top) * (SIZE / rect.height);
-  const c = Math.round((x - MARGIN) / GAP);
-  const r = Math.round((y - MARGIN) / GAP);
-  if (r < 0 || r >= N || c < 0 || c >= N) return null;
-  const dx = x - pos(c), dy = y - pos(r);
-  if (Math.hypot(dx, dy) > GAP * 0.55) return null;
-  return { r, c };
-}
-
-canvas.addEventListener("mousemove", (evt) => {
-  const cell = toCell(evt);
-  const next = (cell && !state.over && state.you && state.you === state.current
-                && !state.board[cell.r][cell.c]) ? cell : null;
-  if (JSON.stringify(next) !== JSON.stringify(hover)) {
-    hover = next;
-    draw();
-  }
-});
-
-canvas.addEventListener("mouseleave", () => {
-  if (hover) { hover = null; draw(); }
-});
-
-canvas.addEventListener("click", (evt) => {
-  const cell = toCell(evt);
-  if (!cell || !ws || ws.readyState !== WebSocket.OPEN) return;
-  if (!state.you || state.over) return;
-  if (state.current !== state.you) return;
-  if (state.board[cell.r][cell.c] !== 0) return;
-  hover = null;
-  ws.send(JSON.stringify({ type: "move", row: cell.r, col: cell.c }));
-});
-
-restartBtn.addEventListener("click", () => {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: "restart" }));
-  }
-});
-
-undoBtn.addEventListener("click", () => {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: "undo" }));
-  }
-});
-
-// ------------------------------ 状态栏 ------------------------------
-function updateUI() {
-  const s = state;
-  tagBlack.textContent = s.you === 1 ? "你" : "";
-  tagWhite.textContent = s.you === 2 ? "你" : "";
-
-  let text;
-  if (!s.you) {
-    text = (s.players.black && s.players.white)
-      ? "你是观众，正在观战。"
-      : "等待另一位玩家加入…（再开一个窗口即可对弈）";
-  } else if (s.over) {
-    if (s.winner === 0) text = "平局！点「重新开始」再来一局。";
-    else if (s.winner === s.you) text = "你赢了！可点「悔棋」继续对局，或「重新开始」再来一局。";
-    else text = "你输了。点「重新开始」再来一局。";
-  } else if (!(s.players.black && s.players.white)) {
-    text = "等待另一位玩家加入…（把地址发给对方，或再开一个窗口）";
-  } else if (s.current === s.you) {
-    text = "轮到你落子（你执" + (s.you === 1 ? "黑" : "白") + "）。";
-  } else {
-    text = "等待对方落子…";
-  }
-
-  statusEl.textContent = text;
-  statusEl.classList.toggle(
-    "bad",
-    s.over && s.winner !== null && s.winner !== 0 && s.winner !== s.you
-  );
-  restartBtn.disabled = !s.you;
-  undoBtn.disabled = !s.you || !s.canUndo;
-
-  // 重新开始需双方确认：显示对方请求 / 自己的等待状态
-  const votes = s.restartVotes || { black: false, white: false };
-  const myKey = s.you === 1 ? "black" : (s.you === 2 ? "white" : "");
-  const oppKey = s.you === 1 ? "white" : (s.you === 2 ? "black" : "");
-  const myVote = !!myKey && votes[myKey];
-  const oppVote = !!oppKey && votes[oppKey];
-  restartBtn.classList.toggle("highlight", oppVote && !myVote);
-  if (s.you) {
-    if (myVote) restartBtn.textContent = "等待对方确认重新开始（点击取消）";
-    else if (oppVote) restartBtn.textContent = "对方想重新开始，点击同意";
-    else restartBtn.textContent = "重新开始（双方交换黑白）";
-  } else {
-    restartBtn.textContent = "重新开始（双方交换黑白）";
-  }
-}
-
-function setConn(text, cls) {
-  connEl.textContent = text;
-  connEl.className = "conn" + (cls ? " " + cls : "");
-}
-
-function flash(text, isError) {
-  if (flashTimer) clearTimeout(flashTimer);
-  statusEl.textContent = text;
-  statusEl.classList.toggle("bad", isError !== false);
-  flashTimer = setTimeout(() => { flashTimer = null; updateUI(); }, 1800);
-}
-
-// ------------------------------ WebSocket ------------------------------
-function wsUrl() {
-  const scheme = location.protocol === "https:" ? "wss" : "ws";
-  let host = location.host;
-  if (location.hostname === "localhost") {
-    host = "127.0.0.1" + (location.port ? ":" + location.port : "");
-  }
-  return scheme + "://" + host + "/";
-}
-
-function connect() {
-  setConn("连接中…", "");
-  ws = new WebSocket(wsUrl());
-
-  ws.onopen = () => {
-    firstState = true;
-    prevLastMove = null;
-    prevOver = false;
-    setConn("已连接", "ok");
-  };
-
-  ws.onmessage = (evt) => {
-    let msg;
-    try { msg = JSON.parse(evt.data); } catch (err) { return; }
-    if (msg.type === "state") {
-      const moveKey = msg.lastMove ? msg.lastMove.join(",") : "";
-      const prevMoveKey = prevLastMove ? prevLastMove.join(",") : "";
-      if (!firstState) {
-        if (skipSoundOnce) {
-          skipSoundOnce = false;
-        } else {
-          if (msg.lastMove && moveKey !== prevMoveKey) playSound(placeSound);
-          if (msg.over && !prevOver) {
-            // 只有获胜方播放胜利音效；输棋一方与观众不播放任何结束音效
-            if (msg.winner && msg.winner === msg.you) playSound(winSound, 250);
-          } else if (msg.lastMove && moveKey !== prevMoveKey) {
-            // 这一手是否新形成了活三或冲四（提示音共用）
-            const last = msg.lastMove;
-            const created = findThreats(msg.board, N).some(function (th) {
-              return th.cells.some(function (p) {
-                return p[0] === last[0] && p[1] === last[1];
-              });
-            });
-            if (created) {
-              playSound(threatSound, 180);
-              showToast("🎣 上钩了！");
-            }
-          }
-        }
-      }
-      firstState = false;
-      prevLastMove = msg.lastMove;
-      prevOver = msg.over;
-      state = msg;
-      draw();
-      updateUI();
-      if (undoNotice) {
-        const text = undoNotice;
-        undoNotice = null;
-        flash(text, false);
-      }
-    } else if (msg.type === "undo") {
-      skipSoundOnce = true;
-      undoNotice = (msg.color === state.you)
-        ? "你已悔棋，撤销了最后一手"
-        : "对方悔棋，撤销了最后一手";
-    } else if (msg.type === "error") {
-      flash(msg.message || "出错了");
-    }
-  };
-
-  ws.onclose = () => {
-    setConn("已断开，重连中…", "bad");
-    setTimeout(connect, 1200);
-  };
-
-  ws.onerror = () => {
-    try { ws.close(); } catch (err) { /* 忽略 */ }
-  };
-}
-
-draw();
-updateUI();
-connect();
-</script>
 </body>
 </html>

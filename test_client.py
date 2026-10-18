@@ -165,12 +165,16 @@ def test_http_page():
     with urllib.request.urlopen(BASE_URL, timeout=TIMEOUT) as resp:
         html = resp.read().decode("utf-8")
         assert resp.status == 200, "HTTP 状态码异常: %r" % resp.status
-    assert "五子棋" in html, "页面内容不是五子棋页面"
-    print("[1/6] HTTP 页面可访问          PASS")
+    assert "五子棋" in html and "象棋" in html, "开始界面应包含两种玩法入口"
+    for page in ("gomoku.html", "xiangqi.html"):
+        with urllib.request.urlopen(BASE_URL + page, timeout=TIMEOUT) as resp:
+            assert resp.status == 200, "页面 %s 不可访问" % page
+    print("[1/7] 开始界面与两个游戏页     PASS")
 
 
 def test_join_and_colors():
     p1 = WSClient()
+    p1.send({"type": "join", "game": "gomoku"})
     hello1 = expect(p1, "hello")
     assert hello1["color"] == 1, "第一个玩家应为黑棋: %r" % hello1
     st1 = expect(p1, "state")
@@ -178,6 +182,7 @@ def test_join_and_colors():
     assert st1["you"] == 1 and st1["current"] == 1
 
     p2 = WSClient()
+    p2.send({"type": "join", "game": "gomoku"})
     hello2 = expect(p2, "hello")
     assert hello2["color"] == 2, "第二个玩家应为白棋: %r" % hello2
     st2 = expect(p2, "state")
@@ -185,14 +190,14 @@ def test_join_and_colors():
     assert st1["players"] == {"black": True, "white": True}
     assert st2["you"] == 2 and st1["you"] == 1
     assert sum(sum(row) for row in st1["board"]) == 0, "开局棋盘应为空"
-    print("[2/6] 双客户端连接、黑白分配    PASS")
+    print("[2/7] 双客户端连接、黑白分配    PASS")
     return p1, p2
 
 
 def test_out_of_turn(p2):
     p2.send({"type": "move", "row": 7, "col": 7})  # 白棋抢先落子
     expect_error(p2, "轮")
-    print("[3/6] 非本回合落子被拒绝        PASS")
+    print("[3/7] 非本回合落子被拒绝        PASS")
 
 
 def test_win(p1, p2):
@@ -221,7 +226,7 @@ def test_win(p1, p2):
     cells = {(r, c) for r, c in s1["line"]}
     for i in range(5):
         assert (0, i) in cells, "获胜连线缺少 (0, %d)" % i
-    print("[4/6] 五连胜利判定与连线        PASS")
+    print("[4/7] 五连胜利判定与连线        PASS")
 
 
 def test_undo(p1, p2):
@@ -255,7 +260,7 @@ def test_undo(p1, p2):
     expect(p2, "state")
     assert s1["over"] is True and s1["winner"] == 1, "重新落子后应再次判定黑棋获胜"
     assert s1["undoGhost"] is None, "落子后虚影应清除"
-    print("[5/6] 悔棋（仅限自己的棋）与虚影   PASS")
+    print("[5/7] 悔棋（仅限自己的棋）与虚影   PASS")
 
 
 def test_restart(p1, p2):
@@ -285,13 +290,75 @@ def test_restart(p1, p2):
         assert s["over"] is False and s["current"] == 1 and s["lastMove"] is None
         assert s["restartVotes"] == {"black": False, "white": False}
     assert s1["you"] == 2 and s2["you"] == 1, "重开后黑白应交换"
-    print("[6/6] 双方确认后重开与换边      PASS")
+    print("[6/7] 双方确认后重开与换边      PASS")
+
+
+def test_xiangqi():
+    q1 = WSClient()
+    q1.send({"type": "join", "game": "xiangqi"})
+    h1 = expect(q1, "hello")
+    assert h1["color"] == 1 and h1["game"] == "xiangqi", h1
+    s1 = expect(q1, "state")
+    assert s1["game"] == "xiangqi" and s1["turn"] == 1, "红方应先行"
+    assert s1["board"][6][0] == "P" and s1["board"][9][4] == "K", "初始局面异常"
+    assert s1["board"][0][4] == "k"
+
+    q2 = WSClient()
+    q2.send({"type": "join", "game": "xiangqi"})
+    h2 = expect(q2, "hello")
+    assert h2["color"] == 2, h2
+    s2 = expect(q2, "state")
+    s1 = expect(q1, "state")
+    assert s1["players"] == {"red": True, "black": True}
+
+    # 查询红兵合法走法
+    q1.send({"type": "legal", "from": [6, 0]})
+    lm = expect(q1, "legal")
+    assert lm.get("from") == [6, 0]
+    assert [5, 0] in lm["moves"], lm["moves"]
+
+    # 红兵前进
+    q1.send({"type": "move", "from": [6, 0], "to": [5, 0]})
+    s1 = expect(q1, "state")
+    s2 = expect(q2, "state")
+    assert s1["board"][5][0] == "P" and s1["board"][6][0] is None
+    assert s1["turn"] == 2, "红方走完后应轮到黑方"
+    assert s1["lastMove"] == {"from": [6, 0], "to": [5, 0]}, s1["lastMove"]
+
+    # 黑方不能悔红方的棋
+    q2.send({"type": "undo"})
+    expect_error(q2, "只能悔自己")
+
+    # 红方悔棋：恢复初始局面
+    q1.send({"type": "undo"})
+    expect(q1, "undo")
+    expect(q2, "undo")
+    s1 = expect(q1, "state")
+    expect(q2, "state")
+    assert s1["board"][6][0] == "P" and s1["board"][5][0] is None
+    assert s1["turn"] == 1 and s1["canUndo"] is False
+
+    # 双方确认重开（并交换红黑）
+    q1.send({"type": "restart"})
+    s1 = expect(q1, "state")
+    expect(q2, "state")
+    assert s1["restartVotes"] == {"red": True, "black": False}, s1["restartVotes"]
+    q2.send({"type": "restart"})
+    s1 = expect(q1, "state")
+    s2 = expect(q2, "state")
+    assert s1["you"] == 2 and s2["you"] == 1, "重开后应交换红黑"
+    for s in (s1, s2):
+        assert s["board"][6][0] == "P", "重开后应回到初始局面"
+        assert s["turn"] == 1
+    q1.close()
+    q2.close()
+    print("[7/7] 象棋联机协议与换边        PASS")
 
 
 def main():
     global HOST, PORT, TIMEOUT, TLS, BASE_URL
     _fix_stdout()
-    parser = argparse.ArgumentParser(description="五子棋联机自测")
+    parser = argparse.ArgumentParser(description="棋类对战联机自测（五子棋 + 中国象棋）")
     parser.add_argument("--url", help="线上地址，如 https://gomoku.onrender.com；省略则测本机")
     args = parser.parse_args()
 
@@ -307,7 +374,7 @@ def main():
     else:
         print("测试目标: 本机 %s" % BASE_URL)
 
-    print("五子棋联机自测（本机测试请先启动 server.py）")
+    print("棋类对战联机自测（本机测试请先启动 server.py）")
     print("-" * 44)
     try:
         test_http_page()
@@ -318,6 +385,7 @@ def main():
         test_restart(p1, p2)
         p1.close()
         p2.close()
+        test_xiangqi()
     except AssertionError as exc:
         print("\n[FAIL] %s" % exc)
         return 1

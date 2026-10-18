@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>中国象棋 · 联机对战</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh;
+    background: radial-gradient(1200px 800px at 20% 0%, #232a36, #12151b 60%);
+    color: #e8e8ea;
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .app { width: 100%; max-width: 1020px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 16px; }
+  h1 { margin: 0; font-size: 24px; letter-spacing: 2px; font-weight: 600; }
+  h1 small { font-size: 12px; color: #8f9bb0; letter-spacing: 0; margin-left: 10px; font-weight: 400; }
+  .head-right { display: flex; align-items: center; gap: 12px; }
+  .back { color: #9fb0c9; text-decoration: none; font-size: 13px; }
+  .back:hover { text-decoration: underline; }
+  .conn { font-size: 13px; padding: 4px 12px; border-radius: 999px; background: #2a3140; color: #9fb0c9; }
+  .conn.ok { background: #173527; color: #5fd18b; }
+  .conn.bad { background: #3a1f22; color: #ff8a80; }
+  main { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+  .board-wrap { flex: 1 1 540px; display: flex; justify-content: center; min-width: 300px; }
+  canvas { width: 100%; max-width: 540px; height: auto; display: block;
+           border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.45); cursor: pointer; }
+  .panel { flex: 0 1 300px; min-width: 260px; display: flex; flex-direction: column; gap: 14px; }
+  .players { display: flex; flex-direction: column; gap: 8px; }
+  .player { display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+            background: #1b212c; border-radius: 10px; font-size: 14px; }
+  .dot { width: 16px; height: 16px; border-radius: 50%; flex: none; }
+  .dot.red { background: radial-gradient(circle at 35% 30%, #e06655, #9a1f14); }
+  .dot.black { background: radial-gradient(circle at 35% 30%, #666, #111); }
+  .tag { margin-left: auto; font-size: 12px; color: #f0c060; }
+  .status { padding: 14px 16px; background: #1b212c; border-radius: 10px;
+            font-size: 15px; line-height: 1.5; min-height: 52px; }
+  .status.bad { color: #ff8a80; }
+  button { padding: 12px; border: 0; border-radius: 10px; font-size: 15px; cursor: pointer;
+           background: #3d6fd4; color: #fff; font-weight: 600; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button:hover:not(:disabled) { background: #4a80ec; }
+  button.secondary { background: #2a3140; color: #cfd6e2; }
+  button.secondary:hover:not(:disabled) { background: #364050; }
+  button.highlight { box-shadow: 0 0 0 2px #ffd34d, 0 0 16px rgba(255, 211, 77, .6); }
+  .actions { display: flex; gap: 8px; }
+  .actions button { flex: 1; }
+  .hint { color: #8f9bb0; font-size: 12px; line-height: 1.7; margin: 0; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>中国象棋 <small>联机对战</small></h1>
+    <div class="head-right">
+      <a class="back" href="index.html">← 选择玩法</a>
+      <div class="conn" id="conn">连接中…</div>
+    </div>
+  </header>
+  <main>
+    <div class="board-wrap"><canvas id="board"></canvas></div>
+    <aside class="panel">
+      <div class="players">
+        <div class="player"><span class="dot red"></span>红方<span class="tag" id="tag-red"></span></div>
+        <div class="player"><span class="dot black"></span>黑方<span class="tag" id="tag-black"></span></div>
+      </div>
+      <div class="status" id="status">正在连接服务器…</div>
+      <div class="actions">
+        <button id="undo" class="secondary" disabled>悔棋</button>
+        <button id="restart" disabled>重新开始（双方交换红黑）</button>
+      </div>
+      <p class="hint">
+        再打开一个浏览器窗口访问同一地址，两个窗口即可对弈。<br>
+        红方先行，将死对方（或对方无棋可走）获胜；点击己方棋子可查看合法落点。
+      </p>
+    </aside>
+  </main>
+</div>
+<script>
+"use strict";
+
+// ------------------------------ 基础常量 ------------------------------
+const COLS = 9, ROWS = 10;
+const CELL = 60;
+const MARGIN = 30;
+const SIZE_W = MARGIN * 2 + (COLS - 1) * CELL;   // 540
+const SIZE_H = MARGIN * 2 + (ROWS - 1) * CELL;   // 600
+
+const PIECE_CHARS = {
+  K: "帥", A: "仕", B: "相", N: "馬", R: "車", C: "炮", P: "兵",
+  k: "將", a: "士", b: "象", n: "馬", r: "車", c: "砲", p: "卒"
+};
+
+const canvas = document.getElementById("board");
+const ctx = canvas.getContext("2d");
+const dpr = window.devicePixelRatio || 1;
+canvas.width = SIZE_W * dpr;
+canvas.height = SIZE_H * dpr;
+ctx.scale(dpr, dpr);
+
+const connEl = document.getElementById("conn");
+const statusEl = document.getElementById("status");
+const tagRed = document.getElementById("tag-red");
+const tagBlack = document.getElementById("tag-black");
+const restartBtn = document.getElementById("restart");
+const undoBtn = document.getElementById("undo");
+
+const placeSound = new Audio("assets/sounds/place.ogg?v=2");
+placeSound.preload = "auto";
+const winSound = new Audio("assets/sounds/win.ogg?v=2");
+winSound.preload = "auto";
+
+// ------------------------------ 客户端状态 ------------------------------
+function emptyBoard() {
+  return Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+}
+function emptyState() {
+  return {
+    board: emptyBoard(), turn: 1, over: false, winner: null,
+    lastMove: null, you: 0,
+    players: { red: false, black: false }, connected: 0,
+    restartVotes: { red: false, black: false }, canUndo: false
+  };
+}
+let state = emptyState();
+let selected = null;   // {r,c}
+let legalMap = {};     // "r,c" -> true
+let ws = null;
+let flashTimer = null;
+let prevMoveKey = "";
+let prevOver = false;
+let firstState = true;
+let skipSoundOnce = false;
+let undoNotice = null;
+
+function posX(c) { return MARGIN + c * CELL; }
+function posY(r) { return MARGIN + r * CELL; }
+
+function isOwnPiece(piece, color) {
+  if (!piece) return false;
+  return (piece === piece.toUpperCase()) ? color === 1 : color === 2;
+}
+
+// ------------------------------ 绘制 ------------------------------
+function drawBoardBg() {
+  ctx.clearRect(0, 0, SIZE_W, SIZE_H);
+  const bg = ctx.createLinearGradient(0, 0, SIZE_W, SIZE_H);
+  bg.addColorStop(0, "#e6c08a");
+  bg.addColorStop(0.5, "#dda96b");
+  bg.addColorStop(1, "#c98f52");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, SIZE_W, SIZE_H);
+
+  ctx.strokeStyle = "rgba(120,80,40,.08)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 24; i++) {
+    const y = i * 26 + 6;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.bezierCurveTo(SIZE_W * 0.3, y + 6, SIZE_W * 0.7, y - 6, SIZE_W, y + 2);
+    ctx.stroke();
+  }
+}
+
+function drawGrid() {
+  const left = posX(0), right = posX(COLS - 1);
+  const top = posY(0), bottom = posY(ROWS - 1);
+  ctx.strokeStyle = "rgba(70,45,20,.8)";
+  ctx.lineWidth = 1;
+
+  for (let r = 0; r < ROWS; r++) {
+    const y = posY(r);
+    ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(right, y); ctx.stroke();
+  }
+  for (let c = 0; c < COLS; c++) {
+    const x = posX(c);
+    if (c === 0 || c === COLS - 1) {
+      ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, posY(4)); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x, posY(5)); ctx.lineTo(x, bottom); ctx.stroke();
+    }
+  }
+  ctx.lineWidth = 2;
+  ctx.strokeRect(left, top, right - left, bottom - top);
+
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(posX(3), posY(0)); ctx.lineTo(posX(5), posY(2)); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(posX(5), posY(0)); ctx.lineTo(posX(3), posY(2)); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(posX(3), posY(7)); ctx.lineTo(posX(5), posY(9)); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(posX(5), posY(7)); ctx.lineTo(posX(3), posY(9)); ctx.stroke();
+
+  ctx.fillStyle = "rgba(90, 60, 30, .5)";
+  ctx.font = "22px 'KaiTi', 'STKaiti', 'SimSun', serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const riverY = (posY(4) + posY(5)) / 2;
+  ctx.fillText("楚 河", posX(2), riverY);
+  ctx.fillText("汉 界", posX(6), riverY);
+}
+
+function drawPiece(r, c, piece) {
+  const x = posX(c), y = posY(r);
+  const rad = CELL * 0.42;
+  const red = piece === piece.toUpperCase();
+
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,.35)";
+  ctx.shadowBlur = 7;
+  ctx.shadowOffsetY = 2;
+  const grad = ctx.createRadialGradient(x - rad * 0.35, y - rad * 0.35, rad * 0.15, x, y, rad);
+  grad.addColorStop(0, "#fdf3d9");
+  grad.addColorStop(0.7, "#f0dcb0");
+  grad.addColorStop(1, "#d9bd85");
+  ctx.beginPath();
+  ctx.arc(x, y, rad, 0, Math.PI * 2);
+  ctx.fillStyle = grad;
+  ctx.fill();
+  ctx.restore();
+
+  ctx.beginPath();
+  ctx.arc(x, y, rad, 0, Math.PI * 2);
+  ctx.strokeStyle = red ? "#8a2a1a" : "#3a3a3a";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(x, y, rad - 3.5, 0, Math.PI * 2);
+  ctx.strokeStyle = red ? "rgba(138,42,26,.55)" : "rgba(58,58,58,.5)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  ctx.fillStyle = red ? "#a52a2a" : "#222";
+  ctx.font = "bold " + Math.round(CELL * 0.46) + "px 'KaiTi', 'STKaiti', 'SimSun', serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(PIECE_CHARS[piece] || "?", x, y + 1);
+}
+
+function draw() {
+  drawBoardBg();
+  drawGrid();
+
+  if (selected) {
+    for (const key in legalMap) {
+      const parts = key.split(",");
+      const rr = Number(parts[0]), cc = Number(parts[1]);
+      ctx.beginPath();
+      ctx.arc(posX(cc), posY(rr), CELL * 0.12, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(60, 180, 120, .85)";
+      ctx.fill();
+    }
+  }
+
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const p = state.board[r][c];
+      if (p) drawPiece(r, c, p);
+    }
+  }
+
+  if (selected) {
+    ctx.beginPath();
+    ctx.arc(posX(selected.c), posY(selected.r), CELL * 0.46, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(255, 170, 60, .95)";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  }
+
+  if (state.lastMove) {
+    const f = state.lastMove.from, t = state.lastMove.to;
+    ctx.save();
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = "rgba(226, 72, 61, .8)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(posX(f[1]), posY(f[0]), CELL * 0.3, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+    ctx.beginPath();
+    ctx.arc(posX(t[1]), posY(t[0]), CELL * 0.46, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(226, 72, 61, .9)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+}
+
+// ------------------------------ 交互 ------------------------------
+function toCell(evt) {
+  const rect = canvas.getBoundingClientRect();
+  const x = (evt.clientX - rect.left) * (SIZE_W / rect.width);
+  const y = (evt.clientY - rect.top) * (SIZE_H / rect.height);
+  const c = Math.round((x - MARGIN) / CELL);
+  const r = Math.round((y - MARGIN) / CELL);
+  if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return null;
+  const dx = x - posX(c), dy = y - posY(r);
+  if (Math.hypot(dx, dy) > CELL * 0.6) return null;
+  return { r, c };
+}
+
+canvas.addEventListener("click", (evt) => {
+  const cell = toCell(evt);
+  if (!cell || !ws || ws.readyState !== WebSocket.OPEN) return;
+  if (!state.you || state.over) { selected = null; legalMap = {}; draw(); return; }
+  if (state.turn !== state.you) { selected = null; legalMap = {}; draw(); return; }
+
+  const r = cell.r, c = cell.c;
+  if (selected && legalMap[r + "," + c]) {
+    ws.send(JSON.stringify({
+      type: "move",
+      from: [selected.r, selected.c],
+      to: [r, c]
+    }));
+    selected = null;
+    legalMap = {};
+    draw();
+    return;
+  }
+  const piece = state.board[r][c];
+  if (piece && isOwnPiece(piece, state.you)) {
+    selected = { r, c };
+    legalMap = {};
+    ws.send(JSON.stringify({ type: "legal", from: [r, c] }));
+    draw();
+    return;
+  }
+  selected = null;
+  legalMap = {};
+  draw();
+});
+
+restartBtn.addEventListener("click", () => {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "restart" }));
+});
+
+undoBtn.addEventListener("click", () => {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "undo" }));
+});
+
+// ------------------------------ 音效 ------------------------------
+function playSound(audio, delayMs) {
+  window.setTimeout(function () {
+    try {
+      audio.currentTime = 0;
+      const p = audio.play();
+      if (p && p.catch) p.catch(function () { /* 自动播放被拦截时忽略 */ });
+    } catch (err) { /* 忽略 */ }
+  }, delayMs || 0);
+}
+
+// ------------------------------ 状态栏 ------------------------------
+function updateUI() {
+  const s = state;
+  tagRed.textContent = s.you === 1 ? "你" : "";
+  tagBlack.textContent = s.you === 2 ? "你" : "";
+
+  let text;
+  if (!s.you) {
+    text = (s.players.red && s.players.black)
+      ? "你是观众，正在观战。"
+      : "等待另一位玩家加入…（再开一个窗口即可对弈）";
+  } else if (s.over) {
+    if (s.winner === s.you) text = "你赢了！可点「悔棋」继续对局，或「重新开始」再来一局。";
+    else text = "你输了。点「重新开始」再来一局。";
+  } else if (!(s.players.red && s.players.black)) {
+    text = "等待另一位玩家加入…（把地址发给对方，或再开一个窗口）";
+  } else if (s.turn === s.you) {
+    text = selected
+      ? "已选中棋子，点选目标位置落子。"
+      : "轮到你走棋（你执" + (s.you === 1 ? "红方" : "黑方") + "）。";
+  } else {
+    text = "等待对方走棋…";
+  }
+
+  statusEl.textContent = text;
+  statusEl.classList.toggle("bad", s.over && s.winner !== null && s.winner !== s.you);
+  restartBtn.disabled = !s.you;
+  undoBtn.disabled = !s.you || !s.canUndo;
+
+  const votes = s.restartVotes || { red: false, black: false };
+  const myKey = s.you === 1 ? "red" : (s.you === 2 ? "black" : "");
+  const oppKey = s.you === 1 ? "black" : (s.you === 2 ? "red" : "");
+  const myVote = !!myKey && votes[myKey];
+  const oppVote = !!oppKey && votes[oppKey];
+  restartBtn.classList.toggle("highlight", oppVote && !myVote);
+  if (s.you) {
+    if (myVote) restartBtn.textContent = "等待对方确认重新开始（点击取消）";
+    else if (oppVote) restartBtn.textContent = "对方想重新开始，点击同意";
+    else restartBtn.textContent = "重新开始（双方交换红黑）";
+  } else {
+    restartBtn.textContent = "重新开始（双方交换红黑）";
+  }
+}
+
+function setConn(text, cls) {
+  connEl.textContent = text;
+  connEl.className = "conn" + (cls ? " " + cls : "");
+}
+
+function flash(text, isError) {
+  if (flashTimer) clearTimeout(flashTimer);
+  statusEl.textContent = text;
+  statusEl.classList.toggle("bad", isError !== false);
+  flashTimer = setTimeout(() => { flashTimer = null; updateUI(); }, 1800);
+}
+
+// ------------------------------ WebSocket ------------------------------
+function wsUrl() {
+  const scheme = location.protocol === "https:" ? "wss" : "ws";
+  let host = location.host;
+  if (location.hostname === "localhost") {
+    host = "127.0.0.1" + (location.port ? ":" + location.port : "");
+  }
+  return scheme + "://" + host + "/";
+}
+
+function connect() {
+  setConn("连接中…", "");
+  ws = new WebSocket(wsUrl());
+
+  ws.onopen = () => {
+    firstState = true;
+    prevMoveKey = "";
+    prevOver = false;
+    setConn("已连接", "ok");
+    ws.send(JSON.stringify({ type: "join", game: "xiangqi" }));
+  };
+
+  ws.onmessage = (evt) => {
+    let msg;
+    try { msg = JSON.parse(evt.data); } catch (err) { return; }
+    if (msg.type === "state") {
+      const key = msg.lastMove ? JSON.stringify(msg.lastMove) : "";
+      if (!firstState) {
+        if (skipSoundOnce) {
+          skipSoundOnce = false;
+        } else {
+          if (key && key !== prevMoveKey) playSound(placeSound);
+          if (msg.over && !prevOver && msg.winner === msg.you) playSound(winSound, 250);
+        }
+      }
+      firstState = false;
+      prevMoveKey = key;
+      prevOver = msg.over;
+      selected = null;
+      legalMap = {};
+      state = msg;
+      draw();
+      updateUI();
+      if (undoNotice) {
+        const text = undoNotice;
+        undoNotice = null;
+        flash(text, false);
+      }
+    } else if (msg.type === "legal") {
+      if (selected && msg.from && msg.from[0] === selected.r && msg.from[1] === selected.c) {
+        legalMap = {};
+        for (const mv of (msg.moves || [])) {
+          legalMap[mv[0] + "," + mv[1]] = true;
+        }
+        draw();
+        updateUI();
+      }
+    } else if (msg.type === "undo") {
+      skipSoundOnce = true;
+      undoNotice = (msg.color === state.you)
+        ? "你已悔棋，撤销了最后一手"
+        : "对方悔棋，撤销了最后一手";
+    } else if (msg.type === "error") {
+      flash(msg.message || "出错了");
+    }
+  };
+
+  ws.onclose = () => {
+    setConn("已断开，重连中…", "bad");
+    setTimeout(connect, 1200);
+  };
+
+  ws.onerror = () => {
+    try { ws.close(); } catch (err) { /* 忽略 */ }
+  };
+}
+
+draw();
+updateUI();
+connect();
+</script>
+</body>
+</html>
