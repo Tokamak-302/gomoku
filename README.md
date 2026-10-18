@@ -80,7 +80,8 @@ py -3 gomoku/xiangqi_rules_test.py
 - 9×10 棋盘，红方先行；将死对方（或对方无任何合法走法）即胜；
 - 服务端校验全部规则：马（蹩马腿）、象/相（塞象眼、不过河）、炮（必须隔一子吃子）、
   兵/卒（过河后可横走、不可后退）、士/仕与将/帅（九宫限制）、将帅不可照面（飞将）；
-- 操作：点击己方棋子 → 服务端返回合法落点（绿色圆点）→ 点击目标位置落子；
+- 操作：点击己方棋子（棋子会向上浮起突出显示）→ 服务端返回合法落点（绿点＝走子，红圈＝可吃）→ 点击目标位置落子；
+  鼠标悬停在合法落点上时提示点放大，并标出下一步可能反吃该位置的敌方棋子（橙色虚线环）；
 - 悔棋：只能悔自己刚下的一手（恢复被吃的棋子与轮次）；重新开始：双方确认后交换红黑。
 
 ## 联机协议
@@ -119,7 +120,8 @@ WebSocket 建立后，客户端需先发送「加入游戏」消息，再发送�
     `players`（black/white）、`connected`、`restartVotes`、`undoGhost`、`canUndo`
   - 象棋字段：`board`（10×9 棋子编码/空）、`turn`、`over`、`winner`、`lastMove`（`{from,to}` 或 null）、
     `you`、`players`（red/black）、`connected`、`restartVotes`、`canUndo`
-- `legal`（仅象棋，仅发给请求者）：`{ "type": "legal", "from": [r,c], "moves": [[r,c], ...] }`
+- `legal`（仅象棋，仅发给请求者）：`{ "type": "legal", "from": [r,c], "moves": [[r,c], ...], "captures": {"r,c": "敌方棋子编码"}, "captureBy": {"r,c": [[er,ec], ...]} }`；
+  `captures` 标出可吃子的目标位置，`captureBy` 表示走子到该位置后、下一步可能反吃的敌方棋子
 - `undo`：撤销事件（`color` 为被撤销的一方；五子棋附带 `row`/`col`，象棋附带 `from`/`to`）
 - `error`、`pong`
 

@@ -317,6 +317,13 @@ def test_xiangqi():
     assert lm.get("from") == [6, 0]
     assert [5, 0] in lm["moves"], lm["moves"]
 
+    # 查询红炮：隔一子吃黑马，并标出可反吃的黑车
+    q1.send({"type": "legal", "from": [7, 1]})
+    lm = expect(q1, "legal")
+    assert [0, 1] in lm["moves"], lm["moves"]
+    assert lm["captures"].get("0,1") == "n", lm["captures"]
+    assert [0, 0] in lm["captureBy"].get("0,1", []), lm["captureBy"]
+
     # 红兵前进
     q1.send({"type": "move", "from": [6, 0], "to": [5, 0]})
     s1 = expect(q1, "state")

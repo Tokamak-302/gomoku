@@ -343,17 +343,53 @@ class XiangqiRoom:
                  and isinstance(frm[0], int) and isinstance(frm[1], int)
                  and in_board(frm[0], frm[1]))
         if not valid:
-            conn.send({"type": "legal", "from": None, "moves": []})
+            conn.send({"type": "legal", "from": None, "moves": [],
+                       "captures": {}, "captureBy": {}})
             return
         fr, fc = frm
         piece = self.board[fr][fc]
         if piece is None or color_of(piece) != conn.color:
-            conn.send({"type": "legal", "from": [fr, fc], "moves": []})
+            conn.send({"type": "legal", "from": [fr, fc], "moves": [],
+                       "captures": {}, "captureBy": {}})
             return
+
+        red = (conn.color == RED)
+        moves = legal_moves(self.board, fr, fc)
+        captures = {}
+        capture_by = {}
+
+        enemy_cells = []
+        for er in range(BOARD_ROWS):
+            for ec in range(BOARD_COLS):
+                ep = self.board[er][ec]
+                if ep is not None and ep.isupper() != red:
+                    enemy_cells.append((er, ec))
+
+        for (tr, tc) in moves:
+            key = "%d,%d" % (tr, tc)
+            target = self.board[tr][tc]
+            if target is not None:
+                captures[key] = target
+            # 走子后的局面里，哪些敌方棋子可以吃这个位置
+            after = _apply(self.board, fr, fc, tr, tc)
+            attackers = []
+            for (er, ec) in enemy_cells:
+                ep2 = after[er][ec]
+                if ep2 is None or ep2.isupper() == red:
+                    continue  # 已被吃掉的棋子 / 己方棋子
+                if (tr, tc) not in pseudo_moves(after, er, ec):
+                    continue
+                if move_keeps_king_safe(after, er, ec, tr, tc):
+                    attackers.append([er, ec])
+            if attackers:
+                capture_by[key] = attackers
+
         conn.send({
             "type": "legal",
             "from": [fr, fc],
-            "moves": [[r, c] for r, c in legal_moves(self.board, fr, fc)],
+            "moves": [[r, c] for r, c in moves],
+            "captures": captures,
+            "captureBy": capture_by,
         })
 
     def handle_restart(self, conn):

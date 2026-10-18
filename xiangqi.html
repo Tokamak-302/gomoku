@@ -74,7 +74,8 @@
       </div>
       <p class="hint">
         再打开一个浏览器窗口访问同一地址，两个窗口即可对弈。<br>
-        红方先行，将死对方（或对方无棋可走）获胜；点击己方棋子可查看合法落点。
+        红方先行，将死对方（或对方无棋可走）获胜；点击己方棋子查看合法落点（绿点＝走子，红圈＝可吃），<br>
+        悬停落点可预览下一步可能反吃该位置的敌方棋子。
       </p>
     </aside>
   </main>
@@ -127,7 +128,11 @@ function emptyState() {
 }
 let state = emptyState();
 let selected = null;   // {r,c}
-let legalMap = {};     // "r,c" -> true
+let legalMoves = [];   // [{r,c}] 合法落点
+let legalKeyMap = {};  // "r,c" -> true
+let captureMap = {};   // "r,c" -> 敌方棋子编码（可吃）
+let captureByMap = {}; // "r,c" -> [[er,ec], ...] 走子后可能反吃该位置的敌方棋子
+let hoverDest = null;  // 当前悬停的合法落点 {r,c}
 let ws = null;
 let flashTimer = null;
 let prevMoveKey = "";
@@ -142,6 +147,15 @@ function posY(r) { return MARGIN + r * CELL; }
 function isOwnPiece(piece, color) {
   if (!piece) return false;
   return (piece === piece.toUpperCase()) ? color === 1 : color === 2;
+}
+
+function clearSelection() {
+  selected = null;
+  legalMoves = [];
+  legalKeyMap = {};
+  captureMap = {};
+  captureByMap = {};
+  hoverDest = null;
 }
 
 // ------------------------------ 绘制 ------------------------------
@@ -202,8 +216,8 @@ function drawGrid() {
   ctx.fillText("汉 界", posX(6), riverY);
 }
 
-function drawPiece(r, c, piece) {
-  const x = posX(c), y = posY(r);
+function drawPiece(r, c, piece, dy) {
+  const x = posX(c), y = posY(r) + (dy || 0);
   const rad = CELL * 0.42;
   const red = piece === piece.toUpperCase();
 
@@ -244,30 +258,73 @@ function draw() {
   drawBoardBg();
   drawGrid();
 
+  const lift = selected ? -6 : 0;
+  const hoverKey = hoverDest ? (hoverDest.r + "," + hoverDest.c) : null;
+
+  // 合法落点提示：可吃位置画红圈（圈住敌方棋子），普通位置画绿点
   if (selected) {
-    for (const key in legalMap) {
-      const parts = key.split(",");
-      const rr = Number(parts[0]), cc = Number(parts[1]);
-      ctx.beginPath();
-      ctx.arc(posX(cc), posY(rr), CELL * 0.12, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(60, 180, 120, .85)";
-      ctx.fill();
+    for (const mv of legalMoves) {
+      const key = mv.r + "," + mv.c;
+      if (captureMap[key]) {
+        const hovered = hoverKey === key;
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(posX(mv.c), posY(mv.r), CELL * 0.44 + (hovered ? 6 : 2), 0, Math.PI * 2);
+        ctx.strokeStyle = hovered ? "rgba(255, 60, 50, 1)" : "rgba(230, 60, 50, .95)";
+        ctx.lineWidth = hovered ? 4.5 : 2.5;
+        ctx.shadowColor = "rgba(255, 70, 50, .8)";
+        ctx.shadowBlur = hovered ? 14 : 6;
+        ctx.stroke();
+        ctx.restore();
+      } else {
+        const hovered = hoverKey === key;
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(posX(mv.c), posY(mv.r), hovered ? CELL * 0.2 : CELL * 0.11, 0, Math.PI * 2);
+        ctx.fillStyle = hovered ? "rgba(80, 230, 140, 1)" : "rgba(60, 180, 120, .85)";
+        if (hovered) {
+          ctx.shadowColor = "rgba(80, 230, 140, .9)";
+          ctx.shadowBlur = 12;
+        }
+        ctx.fill();
+        ctx.restore();
+      }
     }
   }
 
+  // 棋子（选中的棋子向上平移一小段距离突出显示）
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
       const p = state.board[r][c];
-      if (p) drawPiece(r, c, p);
+      if (!p) continue;
+      const dy = (selected && selected.r === r && selected.c === c) ? lift : 0;
+      drawPiece(r, c, p, dy);
     }
   }
 
+  // 选中标记（跟随抬起的棋子）
   if (selected) {
     ctx.beginPath();
-    ctx.arc(posX(selected.c), posY(selected.r), CELL * 0.46, 0, Math.PI * 2);
+    ctx.arc(posX(selected.c), posY(selected.r) + lift, CELL * 0.46, 0, Math.PI * 2);
     ctx.strokeStyle = "rgba(255, 170, 60, .95)";
     ctx.lineWidth = 3;
     ctx.stroke();
+  }
+
+  // 悬停合法落点：标出下一步可能反吃该位置的敌方棋子
+  if (selected && hoverDest && captureByMap[hoverKey]) {
+    for (const at of captureByMap[hoverKey]) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(posX(at[1]), posY(at[0]), CELL * 0.42 + 5, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(255, 110, 40, .95)";
+      ctx.lineWidth = 3;
+      ctx.setLineDash([5, 4]);
+      ctx.shadowColor = "rgba(255, 110, 40, .85)";
+      ctx.shadowBlur = 10;
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   if (state.lastMove) {
@@ -304,32 +361,53 @@ function toCell(evt) {
 canvas.addEventListener("click", (evt) => {
   const cell = toCell(evt);
   if (!cell || !ws || ws.readyState !== WebSocket.OPEN) return;
-  if (!state.you || state.over) { selected = null; legalMap = {}; draw(); return; }
-  if (state.turn !== state.you) { selected = null; legalMap = {}; draw(); return; }
+  if (!state.you || state.over) { clearSelection(); draw(); return; }
+  if (state.turn !== state.you) { clearSelection(); draw(); return; }
 
   const r = cell.r, c = cell.c;
-  if (selected && legalMap[r + "," + c]) {
+  if (selected && legalKeyMap[r + "," + c]) {
     ws.send(JSON.stringify({
       type: "move",
       from: [selected.r, selected.c],
       to: [r, c]
     }));
-    selected = null;
-    legalMap = {};
+    clearSelection();
     draw();
     return;
   }
   const piece = state.board[r][c];
   if (piece && isOwnPiece(piece, state.you)) {
     selected = { r, c };
-    legalMap = {};
+    legalMoves = [];
+    legalKeyMap = {};
+    captureMap = {};
+    captureByMap = {};
+    hoverDest = null;
     ws.send(JSON.stringify({ type: "legal", from: [r, c] }));
     draw();
     return;
   }
-  selected = null;
-  legalMap = {};
+  clearSelection();
   draw();
+});
+
+canvas.addEventListener("mousemove", (evt) => {
+  if (!selected) return;
+  const cell = toCell(evt);
+  const next = (cell && legalKeyMap[cell.r + "," + cell.c]) ? cell : null;
+  const nextKey = next ? (next.r + "," + next.c) : "";
+  const prevKey = hoverDest ? (hoverDest.r + "," + hoverDest.c) : "";
+  if (nextKey !== prevKey) {
+    hoverDest = next;
+    draw();
+  }
+});
+
+canvas.addEventListener("mouseleave", () => {
+  if (hoverDest) {
+    hoverDest = null;
+    draw();
+  }
 });
 
 restartBtn.addEventListener("click", () => {
@@ -369,7 +447,7 @@ function updateUI() {
     text = "等待另一位玩家加入…（把地址发给对方，或再开一个窗口）";
   } else if (s.turn === s.you) {
     text = selected
-      ? "已选中棋子，点选目标位置落子。"
+      ? "已选中棋子：绿点＝可走，红圈＝可吃；悬停落点可预览对方反吃。"
       : "轮到你走棋（你执" + (s.you === 1 ? "红方" : "黑方") + "）。";
   } else {
     text = "等待对方走棋…";
@@ -445,8 +523,7 @@ function connect() {
       firstState = false;
       prevMoveKey = key;
       prevOver = msg.over;
-      selected = null;
-      legalMap = {};
+      clearSelection();
       state = msg;
       draw();
       updateUI();
@@ -457,10 +534,14 @@ function connect() {
       }
     } else if (msg.type === "legal") {
       if (selected && msg.from && msg.from[0] === selected.r && msg.from[1] === selected.c) {
-        legalMap = {};
-        for (const mv of (msg.moves || [])) {
-          legalMap[mv[0] + "," + mv[1]] = true;
+        legalMoves = (msg.moves || []).map(function (mv) { return { r: mv[0], c: mv[1] }; });
+        legalKeyMap = {};
+        for (const mv of legalMoves) {
+          legalKeyMap[mv.r + "," + mv.c] = true;
         }
+        captureMap = msg.captures || {};
+        captureByMap = msg.captureBy || {};
+        hoverDest = null;
         draw();
         updateUI();
       }
