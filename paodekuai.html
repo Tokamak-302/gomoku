@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>跑得快 · 联机对战</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh;
+    background: radial-gradient(1200px 800px at 20% 0%, #232a36, #12151b 60%);
+    color: #e8e8ea;
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  .app { width: 100%; max-width: 980px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
+  h1 { margin: 0; font-size: 24px; letter-spacing: 2px; font-weight: 600; }
+  h1 small { font-size: 12px; color: #8f9bb0; letter-spacing: 0; margin-left: 10px; font-weight: 400; }
+  .head-right { display: flex; align-items: center; gap: 12px; }
+  .back { color: #9fb0c9; text-decoration: none; font-size: 13px; }
+  .back:hover { text-decoration: underline; }
+  .conn { font-size: 13px; padding: 4px 12px; border-radius: 999px; background: #2a3140; color: #9fb0c9; }
+  .conn.ok { background: #173527; color: #5fd18b; }
+  .conn.bad { background: #3a1f22; color: #ff8a80; }
+
+  .table {
+    background: #1b212c; border-radius: 16px; padding: 18px;
+    box-shadow: 0 12px 36px rgba(0,0,0,.4);
+  }
+  .seats { display: flex; gap: 10px; justify-content: space-between; }
+  .seat {
+    flex: 1; padding: 10px 12px; border-radius: 10px;
+    background: #151a23; border: 1px solid #2a3140; text-align: center;
+  }
+  .seat.active { border-color: #ffd34d; box-shadow: 0 0 14px rgba(255, 211, 77, .35); }
+  .seat.me { background: #202a3a; }
+  .seat .name { font-size: 13px; color: #c9d4e4; }
+  .seat .cnt { font-size: 13px; color: #f0c060; margin-top: 4px; }
+  .seat .cnt.warn { color: #ff8a80; font-weight: 700; }
+
+  .center { margin: 18px 0; min-height: 120px; display: flex; align-items: center; justify-content: center; }
+  .lastplay { width: 100%; text-align: center; }
+  .lastplay .label { font-size: 13px; color: #8f9bb0; margin-bottom: 8px; }
+  .lastplay .cards { display: flex; justify-content: center; gap: 6px; flex-wrap: wrap; }
+  .lastplay .empty { color: #5f6b7e; font-size: 13px; padding: 30px 0; }
+
+  .card {
+    width: 52px; height: 74px; border-radius: 8px; background: #f7f4ec;
+    color: #222; border: 1px solid #b9b3a3; box-shadow: 0 3px 8px rgba(0,0,0,.35);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-weight: 700; user-select: none; flex: none;
+  }
+  .card .rank { font-size: 18px; line-height: 1; }
+  .card .suit { font-size: 16px; line-height: 1.2; }
+  .card.small { width: 40px; height: 58px; }
+  .card.small .rank { font-size: 14px; }
+  .card.small .suit { font-size: 13px; }
+  .card.red { color: #b22222; }
+
+  .hand-area { margin-top: 6px; }
+  .hand-info { font-size: 13px; color: #9fb0c9; margin-bottom: 10px; }
+  .hand {
+    display: flex; justify-content: center; align-items: flex-end;
+    padding: 8px 0 26px; min-height: 108px;
+  }
+  .hand .card { cursor: pointer; margin-right: -16px; transition: transform .1s ease, box-shadow .1s ease; }
+  .hand .card:last-child { margin-right: 0; }
+  .hand .card.selected { transform: translateY(-16px); box-shadow: 0 6px 16px rgba(255, 211, 77, .6); border-color: #ffd34d; }
+
+  .actions { display: flex; gap: 10px; justify-content: center; margin: 4px 0 10px; }
+  button {
+    padding: 11px 26px; border: 0; border-radius: 10px; font-size: 15px; cursor: pointer;
+    background: #3d6fd4; color: #fff; font-weight: 600;
+  }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button:hover:not(:disabled) { background: #4a80ec; }
+  button.secondary { background: #2a3140; color: #cfd6e2; }
+  button.secondary:hover:not(:disabled) { background: #364050; }
+
+  .bottom { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .status { flex: 1 1 320px; padding: 12px 16px; background: #151a23; border-radius: 10px; font-size: 14px; line-height: 1.5; min-height: 46px; }
+  .status.bad { color: #ff8a80; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>跑得快 <small>三人牌局</small></h1>
+    <div class="head-right">
+      <a class="back" href="index.html">← 选择玩法</a>
+      <div class="conn" id="conn">连接中…</div>
+    </div>
+  </header>
+  <section class="table">
+    <div class="seats">
+      <div class="seat" id="seat1"><div class="name">玩家 1</div><div class="cnt" id="count-1">0 张</div></div>
+      <div class="seat" id="seat2"><div class="name">玩家 2</div><div class="cnt" id="count-2">0 张</div></div>
+      <div class="seat" id="seat3"><div class="name">玩家 3</div><div class="cnt" id="count-3">0 张</div></div>
+    </div>
+
+    <div class="center">
+      <div class="lastplay" id="lastplay">
+        <div class="empty">等待发牌…</div>
+      </div>
+    </div>
+
+    <div class="hand-area">
+      <div class="hand-info">我的手牌：<b id="mycount">0</b> 张（点击选牌，再点取消）</div>
+      <div class="hand" id="hand"></div>
+      <div class="actions">
+        <button id="pass" class="secondary" disabled>过牌</button>
+        <button id="play" disabled>出牌</button>
+      </div>
+    </div>
+
+    <div class="bottom">
+      <div class="status" id="status">正在连接服务器…</div>
+      <button id="restart" class="secondary" disabled>重新开始（三人确认）</button>
+    </div>
+  </section>
+</div>
+<script>
+"use strict";
+
+const RANK_TEXT = {
+  3: "3", 4: "4", 5: "5", 6: "6", 7: "7", 8: "8", 9: "9", 10: "10",
+  11: "J", 12: "Q", 13: "K", 14: "A", 15: "2"
+};
+const SUIT_TEXT = ["♠", "♥", "♣", "♦"];
+const COLOR_NAMES = { 1: "玩家 1", 2: "玩家 2", 3: "玩家 3" };
+
+const connEl = document.getElementById("conn");
+const statusEl = document.getElementById("status");
+const handEl = document.getElementById("hand");
+const lastplayEl = document.getElementById("lastplay");
+const mycountEl = document.getElementById("mycount");
+const playBtn = document.getElementById("play");
+const passBtn = document.getElementById("pass");
+const restartBtn = document.getElementById("restart");
+
+const placeSound = new Audio("assets/sounds/place.ogg?v=2");
+placeSound.preload = "auto";
+const winSound = new Audio("assets/sounds/win.ogg?v=2");
+winSound.preload = "auto";
+
+let state = {
+  you: 0, hand: [], counts: { "1": 0, "2": 0, "3": 0 },
+  turn: null, lastPlay: null, started: false, over: false, winner: null,
+  players: { "1": false, "2": false, "3": false }, connected: 0,
+  restartVotes: { "1": false, "2": false, "3": false }
+};
+let ws = null;
+let selected = {};       // "r,s" -> true
+let flashTimer = null;
+let firstState = true;
+let prevPlayKey = "";
+let prevOver = false;
+let navigating = false;
+
+function setConn(text, cls) {
+  connEl.textContent = text;
+  connEl.className = "conn" + (cls ? " " + cls : "");
+}
+
+function cardEl(card, small) {
+  const el = document.createElement("div");
+  el.className = "card" + (small ? " small" : "") + ((card.s === 1 || card.s === 3) ? " red" : "");
+  const rank = document.createElement("span");
+  rank.className = "rank";
+  rank.textContent = RANK_TEXT[card.r] || "?";
+  const suit = document.createElement("span");
+  suit.className = "suit";
+  suit.textContent = SUIT_TEXT[card.s] || "?";
+  el.appendChild(rank);
+  el.appendChild(suit);
+  return el;
+}
+
+function renderHand() {
+  handEl.innerHTML = "";
+  for (const card of state.hand) {
+    const el = cardEl(card, false);
+    el.dataset.key = card.r + "," + card.s;
+    if (selected[el.dataset.key]) el.classList.add("selected");
+    el.addEventListener("click", function () {
+      if (!state.started || state.over || state.you === 0) return;
+      const key = el.dataset.key;
+      if (selected[key]) delete selected[key];
+      else selected[key] = true;
+      renderHand();
+      updateUI();
+    });
+    handEl.appendChild(el);
+  }
+}
+
+function renderLastPlay() {
+  lastplayEl.innerHTML = "";
+  if (!state.started) {
+    lastplayEl.innerHTML = '<div class="empty">等待三名玩家到齐…</div>';
+    return;
+  }
+  if (!state.lastPlay) {
+    lastplayEl.innerHTML = '<div class="empty">新一轮自由出牌</div>';
+    return;
+  }
+  const label = document.createElement("div");
+  label.className = "label";
+  label.textContent = COLOR_NAMES[state.lastPlay.by] + " 出牌";
+  lastplayEl.appendChild(label);
+  const cards = document.createElement("div");
+  cards.className = "cards";
+  for (const card of state.lastPlay.cards) cards.appendChild(cardEl(card, true));
+  lastplayEl.appendChild(cards);
+}
+
+function updateUI() {
+  const s = state;
+
+  for (const color of (1, 2, 3)) {
+    const seat = document.getElementById("seat" + color);
+    const countEl = document.getElementById("count-" + color);
+    const present = s.players[String(color)];
+    seat.classList.toggle("active", s.started && s.turn === color && !s.over);
+    seat.classList.toggle("me", s.you === color);
+    const cnt = (s.counts && s.counts[String(color)]) || 0;
+    countEl.textContent = (present ? cnt : "—") + " 张";
+    countEl.classList.toggle("warn", present && s.started && cnt > 0 && cnt <= 2);
+    seat.querySelector(".name").textContent =
+      (s.you === color ? "我" : COLOR_NAMES[color]) + (present ? "" : "（离线）");
+  }
+  mycountEl.textContent = (s.hand || []).length;
+
+  const myTurn = s.started && !s.over && s.turn === s.you && s.you !== 0;
+  const selCount = Object.keys(selected).length;
+  playBtn.disabled = !(myTurn && selCount > 0);
+  passBtn.disabled = !(myTurn && s.lastPlay !== null);
+  restartBtn.disabled = s.you === 0 || s.connected < 3;
+  const votes = s.restartVotes || {};
+  const voteCount = (votes["1"] ? 1 : 0) + (votes["2"] ? 1 : 0) + (votes["3"] ? 1 : 0);
+  if (s.you && votes[String(s.you)]) {
+    restartBtn.textContent = "等待其他玩家确认（点击取消，已确认 " + voteCount + "/3）";
+  } else if (voteCount > 0) {
+    restartBtn.textContent = "重新开始（三人确认，已确认 " + voteCount + "/3）";
+  } else {
+    restartBtn.textContent = "重新开始（三人确认）";
+  }
+
+  let text;
+  if (!s.you) {
+    text = "观众模式：正在观战。";
+  } else if (!s.started) {
+    text = "等待玩家加入（" + (s.connected || 0) + "/3）…";
+  } else if (s.over) {
+    if (s.winner === 0) text = "对局中断（有玩家离开）。";
+    else if (s.winner === s.you) text = "你出完了手牌，获胜！";
+    else text = COLOR_NAMES[s.winner] + " 获胜。";
+  } else if (s.turn === s.you) {
+    text = selCount > 0
+      ? "轮到你出牌：已选 " + selCount + " 张，点击「出牌」。"
+      : "轮到你出牌（点击手牌选择，再点「出牌」）。";
+  } else {
+    text = "等待 " + COLOR_NAMES[s.turn] + " 出牌…";
+  }
+  statusEl.textContent = text;
+  statusEl.classList.toggle("bad", s.over && s.winner !== 0 && s.winner !== s.you);
+}
+
+function flash(text, isError) {
+  if (flashTimer) clearTimeout(flashTimer);
+  statusEl.textContent = text;
+  statusEl.classList.toggle("bad", isError !== false);
+  flashTimer = setTimeout(function () {
+    flashTimer = null;
+    updateUI();
+  }, 1800);
+}
+
+function playSound(audio, delayMs) {
+  window.setTimeout(function () {
+    try {
+      audio.currentTime = 0;
+      const p = audio.play();
+      if (p && p.catch) p.catch(function () { /* 自动播放被拦截时忽略 */ });
+    } catch (err) { /* 忽略 */ }
+  }, delayMs || 0);
+}
+
+function wsUrl() {
+  const scheme = location.protocol === "https:" ? "wss" : "ws";
+  let host = location.host;
+  if (location.hostname === "localhost") {
+    host = "127.0.0.1" + (location.port ? ":" + location.port : "");
+  }
+  return scheme + "://" + host + "/";
+}
+
+function connect() {
+  setConn("连接中…", "");
+  ws = new WebSocket(wsUrl());
+
+  ws.onopen = () => {
+    firstState = true;
+    prevPlayKey = "";
+    prevOver = false;
+    setConn("已连接", "ok");
+    ws.send(JSON.stringify({ type: "join", game: "paodekuai" }));
+  };
+
+  ws.onmessage = (evt) => {
+    let msg;
+    try { msg = JSON.parse(evt.data); } catch (err) { return; }
+    if (msg.type === "state") {
+      const playKey = msg.lastPlay ? JSON.stringify(msg.lastPlay) : "";
+      if (!firstState) {
+        if (playKey && playKey !== prevPlayKey) playSound(placeSound);
+        if (msg.over && !prevOver && msg.winner === msg.you) playSound(winSound, 250);
+      }
+      prevPlayKey = playKey;
+      prevOver = msg.over;
+      firstState = false;
+      selected = {};
+      state = msg;
+      renderHand();
+      renderLastPlay();
+      updateUI();
+    } else if (msg.type === "error") {
+      flash(msg.message || "出错了");
+    } else if (msg.type === "notice") {
+      flash(msg.message || "", false);
+    }
+  };
+
+  ws.onclose = () => {
+    setConn("已断开，重连中…", "bad");
+    setTimeout(connect, 1200);
+  };
+
+  ws.onerror = () => {
+    try { ws.close(); } catch (err) { /* 忽略 */ }
+  };
+}
+
+playBtn.addEventListener("click", function () {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const cards = Object.keys(selected).map(function (key) {
+    const parts = key.split(",");
+    return { r: Number(parts[0]), s: Number(parts[1]) };
+  });
+  if (cards.length === 0) return;
+  ws.send(JSON.stringify({ type: "play", cards: cards }));
+});
+
+passBtn.addEventListener("click", function () {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: "pass" }));
+});
+
+restartBtn.addEventListener("click", function () {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: "restart" }));
+});
+
+renderLastPlay();
+updateUI();
+connect();
+</script>
+</body>
+</html>

@@ -75,6 +75,15 @@
     font-family: "KaiTi", "STKaiti", "SimSun", serif;
   }
   .xq span.dark { color: #222; }
+  .pdk { display: flex; gap: 6px; }
+  .pdk span {
+    width: 40px; height: 56px; border-radius: 8px;
+    background: #f7f4ec; color: #222;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 18px;
+    border: 1px solid #b9b3a3; box-shadow: 0 2px 6px rgba(0,0,0,.35);
+  }
+  .pdk span.red { color: #b22222; }
   h2 { margin: 0 0 8px; font-size: 20px; }
   p { margin: 0 0 16px; color: #9fb0c9; font-size: 13px; line-height: 1.7; }
   .go { color: #6fa0ff; font-size: 14px; font-weight: 600; }
@@ -86,8 +95,8 @@
     <h1>棋类对战</h1>
     <div class="conn" id="conn">连接中…</div>
   </div>
-  <p class="sub">两名玩家选择同一种玩法后进入对局 · 开两个窗口即可联机</p>
-  <div class="online">已连接玩家：<b id="online">0/2</b></div>
+  <p class="sub">选择同一种玩法后进入对局 · 五子棋/象棋 2 人，跑得快 3 人 · 多开窗口即可联机</p>
+  <div class="online">已连接玩家：<b id="online">0/3</b></div>
   <div class="notice" id="notice"></div>
   <div class="cards">
     <div class="card" id="card-gomoku" data-game="gomoku">
@@ -112,20 +121,33 @@
       <p>9×10 棋盘 · 红方先行 · 将死获胜 · 悔棋 · 双方确认重开</p>
       <span class="go">选择此玩法 →</span>
     </div>
+    <div class="card" id="card-paodekuai" data-game="paodekuai">
+      <div class="icon">
+        <div class="pdk">
+          <span>3</span><span class="red">7</span><span>Q</span><span class="red">K</span>
+        </div>
+      </div>
+      <h2>跑得快</h2>
+      <p>三人牌局 · 48 张牌 · 红桃 3 先出 · 先出完手牌获胜</p>
+      <span class="go">选择此玩法 →</span>
+    </div>
   </div>
 </div>
 <script>
 "use strict";
 
-const GAME_NAMES = { gomoku: "五子棋", xiangqi: "中国象棋" };
+const GAME_NAMES = { gomoku: "五子棋", xiangqi: "中国象棋", paodekuai: "跑得快" };
+const GAME_NEEDS = { gomoku: 2, xiangqi: 2, paodekuai: 3 };
 
 const connEl = document.getElementById("conn");
 const onlineEl = document.getElementById("online");
 const noticeEl = document.getElementById("notice");
 const cardGomoku = document.getElementById("card-gomoku");
 const cardXiangqi = document.getElementById("card-xiangqi");
+const cardPaodekuai = document.getElementById("card-paodekuai");
+const allCards = { gomoku: cardGomoku, xiangqi: cardXiangqi, paodekuai: cardPaodekuai };
 
-let state = { you: 0, connected: 0, selections: { "1": null, "2": null } };
+let state = { you: 0, connected: 0, selections: { "1": null, "2": null, "3": null } };
 let ws = null;
 let navigating = false;
 
@@ -136,28 +158,40 @@ function setConn(text, cls) {
 
 function updateUI() {
   const s = state;
-  onlineEl.textContent = (s.connected || 0) + "/2";
+  onlineEl.textContent = (s.connected || 0) + "/3";
 
   const mySel = s.you ? s.selections[String(s.you)] : null;
-  const oppKey = s.you === 1 ? "2" : "1";
-  const oppSel = s.you ? s.selections[oppKey] : null;
+  const others = [1, 2, 3]
+    .filter(function (i) { return i !== s.you; })
+    .map(function (i) { return s.selections[String(i)]; })
+    .filter(Boolean);
+  const othersUnique = Array.from(new Set(others));
 
-  cardGomoku.classList.toggle("my-pick", mySel === "gomoku");
-  cardXiangqi.classList.toggle("my-pick", mySel === "xiangqi");
-  cardGomoku.classList.toggle("opp-pick", oppSel === "gomoku");
-  cardXiangqi.classList.toggle("opp-pick", oppSel === "xiangqi");
+  for (const key in allCards) {
+    allCards[key].classList.toggle("my-pick", mySel === key);
+    allCards[key].classList.toggle("opp-pick", othersUnique.indexOf(key) >= 0);
+  }
 
+  const n = s.connected || 0;
   let notice = "";
   if (!s.you) {
-    notice = "当前为观众模式（已有两名玩家连接）";
-  } else if (mySel && oppSel && mySel !== oppSel) {
-    notice = "双方选择不同，请统一玩法（对方选择了" + GAME_NAMES[oppSel] + "）";
+    notice = "当前为观众模式（已有三名玩家连接）";
   } else if (mySel) {
-    notice = "已选择" + GAME_NAMES[mySel] + "，等待对方选择…（再点一次可取消）";
-  } else if (oppSel) {
-    notice = "另一位玩家想玩" + GAME_NAMES[oppSel];
-  } else if ((s.connected || 0) < 2) {
-    notice = "等待另一位玩家连接…（再开一个窗口访问本页）";
+    const need = GAME_NEEDS[mySel] || 2;
+    const different = othersUnique.some(function (g) { return g !== mySel; });
+    if (need > n) {
+      notice = "已选择" + GAME_NAMES[mySel] + "，等待更多玩家（该玩法需要 " + need + " 人）";
+    } else if (different) {
+      notice = "有玩家选择了不同的玩法，请统一选择";
+    } else {
+      notice = "已选择" + GAME_NAMES[mySel] + "，等待其他玩家选择…（再点一次可取消）";
+    }
+  } else if (othersUnique.length === 1) {
+    notice = "另一位玩家想玩" + GAME_NAMES[othersUnique[0]];
+  } else if (othersUnique.length > 1) {
+    notice = "有玩家想玩" + othersUnique.map(function (g) { return GAME_NAMES[g]; }).join("、");
+  } else if (n < 2) {
+    notice = "等待其他玩家连接…（再开一个窗口访问本页）";
   } else {
     notice = "请选择想玩的玩法";
   }
@@ -172,6 +206,7 @@ function selectGame(game) {
 
 cardGomoku.addEventListener("click", () => selectGame("gomoku"));
 cardXiangqi.addEventListener("click", () => selectGame("xiangqi"));
+cardPaodekuai.addEventListener("click", () => selectGame("paodekuai"));
 
 function wsUrl() {
   const scheme = location.protocol === "https:" ? "wss" : "ws";
@@ -201,6 +236,8 @@ function connect() {
       if (navigating) return;
       navigating = true;
       location.href = msg.game + ".html";
+    } else if (msg.type === "notice") {
+      flashNotice(msg.message || "");
     } else if (msg.type === "error") {
       flashNotice(msg.message || "出错了");
     }

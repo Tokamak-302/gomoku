@@ -22,6 +22,7 @@ import threading
 from pathlib import Path
 
 from xiangqi import XiangqiRoom
+from paodekuai import PaodekuaiRoom
 
 BOARD_SIZE = 15
 STATIC_DIR = Path(__file__).resolve().parent
@@ -165,37 +166,42 @@ class Room:
         }
 
 
+GAME_NEEDS = {"gomoku": 2, "xiangqi": 2, "paodekuai": 3}
+
+
 class LobbyRoom:
-    """选择玩法界面的大厅：最多两名玩家，双方选择相同玩法后才开始。"""
+    """选择玩法界面的大厅：最多三名玩家，按玩法所需人数（2 或 3 人）组局。"""
 
     def __init__(self):
         self.lock = threading.RLock()
         self.clients = []
-        self.players = {1: None, 2: None}
-        self.selections = {1: None, 2: None}
-        # 与服务端统一的清理逻辑兼容（大厅不使用该字段）
-        self.restart_votes = {1: False, 2: False}
+        self.players = {1: None, 2: None, 3: None}
+        self.selections = {1: None, 2: None, 3: None}
+        self.restart_votes = {1: False, 2: False, 3: False}
 
     def state_for(self, conn):
         return {
             "type": "lobby_state",
             "you": conn.color,
             "connected": sum(1 for c in self.players.values() if c is not None),
+            "needs": GAME_NEEDS,
             "selections": {
                 "1": self.selections[1],
                 "2": self.selections[2],
+                "3": self.selections[3],
             },
             "players": {
-                "p1": self.players[1] is not None,
-                "p2": self.players[2] is not None,
+                "1": self.players[1] is not None,
+                "2": self.players[2] is not None,
+                "3": self.players[3] is not None,
             },
         }
 
     def handle_select(self, conn, game):
-        if conn.color == 0:
+        if conn.color not in (1, 2, 3):
             conn.send({"type": "error", "message": "观众不能选择玩法"})
             return
-        if game not in (None, "gomoku", "xiangqi"):
+        if game not in (None, "gomoku", "xiangqi", "paodekuai"):
             conn.send({"type": "error", "message": "未知玩法: %s" % game})
             return
         if game is not None and self.selections[conn.color] == game:
@@ -204,21 +210,27 @@ class LobbyRoom:
             self.selections[conn.color] = game
         broadcast_locked(self)
 
-        if (self.players[1] is not None and self.players[2] is not None
-                and self.selections[1] is not None
-                and self.selections[1] == self.selections[2]):
-            chosen = self.selections[1]
-            for client in (self.players[1], self.players[2]):
-                if client.alive:
-                    client.send({"type": "start", "game": chosen})
-            log(f"[大厅] 双方都选择了 {chosen}，进入对局")
-            self.selections = {1: None, 2: None}
-            broadcast_locked(self)
+        for name, need in GAME_NEEDS.items():
+            if (all(self.players[i] is not None for i in range(1, need + 1))
+                    and all(self.selections[i] == name for i in range(1, need + 1))):
+                for i in range(1, need + 1):
+                    client = self.players[i]
+                    if client.alive:
+                        client.send({"type": "start", "game": name})
+                for client in self.clients:
+                    if client.alive and client.color not in range(1, need + 1):
+                        client.send({"type": "notice",
+                                     "message": "对局已开始（本轮你未参与）"})
+                log(f"[大厅] {name} 开局（{need} 人）")
+                self.selections = {1: None, 2: None, 3: None}
+                broadcast_locked(self)
+                return
 
 
 ROOMS = {
     "gomoku": Room(),
     "xiangqi": XiangqiRoom(),
+    "paodekuai": PaodekuaiRoom(),
     "lobby": LobbyRoom(),
 }
 
@@ -320,7 +332,7 @@ def serve_http_request(sock, method, path, headers):
     except ValueError:
         inside = False
     # 只开放页面本身与 assets/ 下的静态资源（音效、威胁检测脚本等）
-    pages = ("index.html", "gomoku.html", "xiangqi.html")
+    pages = ("index.html", "gomoku.html", "xiangqi.html", "paodekuai.html")
     allowed = inside and (rel in pages or rel.startswith("assets/")) \
         and target.is_file()
 
@@ -453,7 +465,7 @@ def handle_undo(conn):
 
 
 def join_game(conn, game):
-    """加入指定游戏的房间：前两名玩家分到 1/2 号位，之后为观众。"""
+    """加入指定游戏的房间：按房间座位数分配 1..N 号位，座位满了成为观众。"""
     if conn.room is not None:
         conn.send({"type": "error", "message": "已经加入对局，不能重复加入"})
         return
@@ -463,16 +475,16 @@ def join_game(conn, game):
         return
     with room.lock:
         room.clients.append(conn)
-        if room.players[1] is None:
-            conn.color = 1
-            room.players[1] = conn
-        elif room.players[2] is None:
-            conn.color = 2
-            room.players[2] = conn
-        else:
-            conn.color = 0  # 观众
+        conn.color = 0
+        for slot in sorted(room.players):
+            if room.players[slot] is None:
+                conn.color = slot
+                room.players[slot] = conn
+                break
         conn.room = room
         conn.game = game
+        if conn.color and hasattr(room, "on_join"):
+            room.on_join()
         log(f"[+] 加入 {conn.addr[0]} 游戏={game} 颜色={conn.color}")
         conn.send({"type": "hello", "color": conn.color, "game": game})
         broadcast_locked(room)
@@ -519,6 +531,17 @@ def handle_message(conn, text):
                 room.handle_undo(conn)
             elif mtype == "legal":
                 room.handle_legal(conn, msg)
+            elif mtype == "ping":
+                conn.send({"type": "pong"})
+            else:
+                conn.send({"type": "error", "message": "未知消息类型: %s" % mtype})
+        elif conn.game == "paodekuai":
+            if mtype == "play":
+                room.handle_play(conn, msg)
+            elif mtype == "pass":
+                room.handle_pass(conn)
+            elif mtype == "restart":
+                room.handle_restart(conn)
             elif mtype == "ping":
                 conn.send({"type": "pong"})
             else:
@@ -629,10 +652,15 @@ def handle_connection(sock, addr):
                 if room.players.get(2) is conn:
                     room.players[2] = None
                     room.restart_votes[2] = False
+                if room.players.get(3) is conn:
+                    room.players[3] = None
+                    room.restart_votes[3] = False
                 if conn.color:
                     selections = getattr(room, "selections", None)
                     if selections is not None:
                         selections[conn.color] = None
+                if hasattr(room, "on_disconnect"):
+                    room.on_disconnect(conn)
                 log(f"[-] 离开 {addr[0]} 游戏={conn.game} 颜色={conn.color}")
                 broadcast_locked(room)
         try:
@@ -664,7 +692,7 @@ def main():
 
     shown = "127.0.0.1" if HOST == "0.0.0.0" else HOST
     log("=" * 52)
-    log(" 棋类对战 · 联机服务已启动（五子棋 / 中国象棋）")
+    log(" 棋类对战 · 联机服务已启动（五子棋 / 中国象棋 / 跑得快）")
     log(f" 本机访问 : http://{shown}:{PORT}")
     log(" 部署平台 : 自动使用环境变量 PORT / HOST")
     log(" 停止     : 按 Ctrl+C")
