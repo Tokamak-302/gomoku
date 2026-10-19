@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""跑得快（三人，48 张）规则与联机房间（服务端权威）。
+"""跑得快（二人版，防记牌）规则与联机房间（服务端权威）。
 
-规则要点（与斗地主基本一致）：
-- 牌库：去掉大小王、三张 2（只留黑桃 2）、黑桃 A，共 48 张；三人各 16 张；
-- 先手：持有红桃 3 的玩家先出；先出完手牌者获胜；
+规则要点（牌型与斗地主基本一致）：
+- 牌库：去掉大小王，共 52 张；发牌前**随机移除 12 张**（防止记牌），
+  剩余 40 张由两名玩家各拿 20 张；
+- 先手：若红桃 3 未被移除，由持有者先出；否则随机决定先手；
+- 先出完手牌者获胜；
 - 牌型：单张、对子、三张、三带一、三带二、顺子（≥5 张，不含 2）、
   连对（≥2 对，不含 2）、飞机（≥2 个连续三张，可带 N 或 2N 张单牌）、炸弹；
-- 比较：同牌型同长度比点数；炸弹可压任意非炸弹牌型，炸弹之间比点数；
-- 出牌后其余两家都过牌，则由最后出牌者重新领出（自由出牌）；
+- 比较：同牌型同长度比点数（2 最大）；炸弹可压任意非炸弹牌型，炸弹之间比点数；
+- 出牌后对手过牌，则由最后出牌者重新领出（自由出牌）；
 - 简化：不强制「有管必管」，不支持 4 带 X 与王炸（无王）。
 
-坐标/表示：卡牌 {"r": 3..15, "s": 0..3}（r=14 为 A，r=15 为 2，s 0=♠ 1=♥ 2=♣ 3=♦）。
+卡牌表示：{"r": 3..15, "s": 0..3}（r=11 J、12 Q、13 K、14 A、15 为 2；s 0=♠ 1=♥ 2=♣ 3=♦）。
 """
 import copy
 import random
@@ -23,20 +25,20 @@ RANK_NAMES = {
 }
 SUIT_NAMES = {0: "♠", 1: "♥", 2: "♣", 3: "♦"}
 
+HAND_SIZE = 20
+REMOVED_CARDS = 12  # 52 - 2 * 20，发牌前随机移除
+
 
 def log(text):
     print(text, flush=True)
 
 
 def initial_deck():
-    """48 张：3..K 各 4 张；A 只有 ♥♣♦；2 只有 ♠。"""
+    """52 张（不含大小王）：3..A 与 2 各 4 张。"""
     deck = []
-    for r in range(3, 14):
+    for r in range(3, 16):
         for s in range(4):
             deck.append({"r": r, "s": s})
-    for s in (1, 2, 3):
-        deck.append({"r": 14, "s": s})
-    deck.append({"r": 15, "s": 0})
     return deck
 
 
@@ -119,34 +121,36 @@ def broadcast_locked(room):
 
 
 class PaodekuaiRoom:
-    """三人跑得快房间。前三个连接为玩家 1/2/3，其他人观战。"""
+    """二人跑得快房间。前两个连接为玩家 1/2，其他人观战。"""
 
     def __init__(self):
         self.lock = threading.RLock()
         self.clients = []
-        self.players = {1: None, 2: None, 3: None}
-        self.restart_votes = {1: False, 2: False, 3: False}
+        self.players = {1: None, 2: None}
+        self.restart_votes = {1: False, 2: False}
         self.reset(deal=False)
 
     def reset(self, deal=False):
-        self.hands = {1: [], 2: [], 3: []}
+        self.hands = {1: [], 2: []}
+        self.removed_count = REMOVED_CARDS
         self.turn = None
         self.last_play = None  # {"cards": [...], "by": n, "combo": {...}}
         self.passes = 0
         self.started = False
         self.over = False
         self.winner = None
-        self.restart_votes = {1: False, 2: False, 3: False}
+        self.restart_votes = {1: False, 2: False}
         if deal:
             self.deal()
 
     def deal(self):
         deck = initial_deck()
         random.shuffle(deck)
+        # 随机移除 12 张，防止玩家通过记牌推算对手手牌
+        self.removed_count = REMOVED_CARDS
         self.hands = {
-            1: deck[0:16],
-            2: deck[16:32],
-            3: deck[32:48],
+            1: deck[0:HAND_SIZE],
+            2: deck[HAND_SIZE:HAND_SIZE * 2],
         }
         for color in self.hands:
             self.hands[color].sort(key=lambda c: (c["r"], c["s"]))
@@ -156,68 +160,67 @@ class PaodekuaiRoom:
         self.last_play = None
         self.passes = 0
         self.turn = self._first_turn()
-        log(f"[跑得快] 发牌完成，先手为玩家{self.turn}")
+        log(f"[跑得快] 发牌完成（随机移除 {REMOVED_CARDS} 张），先手为玩家{self.turn}")
 
     def start(self):
         self.deal()
 
     def _first_turn(self):
-        for color in (1, 2, 3):
+        for color in (1, 2):
             for card in self.hands[color]:
                 if card["r"] == 3 and card["s"] == 1:  # 红桃 3
                     return color
-        return 1
+        return random.choice((1, 2))
 
     def on_join(self):
-        if (all(self.players[i] is not None for i in (1, 2, 3))
+        if (all(self.players[i] is not None for i in (1, 2))
                 and (not self.started or self.over)):
             self.start()
 
     def on_disconnect(self, conn):
-        if self.started and not self.over and conn.color in (1, 2, 3):
+        if self.started and not self.over and conn.color in (1, 2):
             self.over = True
             self.winner = 0
             self.last_play = None
             log(f"[跑得快] 玩家{conn.color}离开，对局中断")
 
     def state_for(self, conn):
-        hand = self.hands[conn.color] if conn.color in (1, 2, 3) else []
+        hand = self.hands[conn.color] if conn.color in (1, 2) else []
         return {
             "type": "state",
             "game": "paodekuai",
             "you": conn.color,
             "hand": copy.deepcopy(hand),
-            "counts": {str(i): len(self.hands[i]) for i in (1, 2, 3)},
+            "counts": {str(i): len(self.hands[i]) for i in (1, 2)},
             "turn": self.turn,
             "lastPlay": self.last_play,
             "started": self.started,
             "over": self.over,
             "winner": self.winner,
+            "removedCount": self.removed_count,
             "players": {
                 "1": self.players[1] is not None,
                 "2": self.players[2] is not None,
-                "3": self.players[3] is not None,
             },
             "connected": sum(1 for c in self.players.values() if c is not None),
             "restartVotes": {
                 "1": self.restart_votes[1],
                 "2": self.restart_votes[2],
-                "3": self.restart_votes[3],
             },
         }
 
     def _next_turn(self, color):
-        return color % 3 + 1
+        return 2 if color == 1 else 1
 
     def _hand_contains(self, color, card):
         return any(c["r"] == card["r"] and c["s"] == card["s"] for c in self.hands[color])
 
     def handle_play(self, conn, msg):
-        if conn.color not in (1, 2, 3):
+        if conn.color not in (1, 2):
             conn.send({"type": "error", "message": "观众不能出牌"})
             return
         if not self.started:
-            conn.send({"type": "error", "message": "对局还没开始，等待三名玩家到齐"})
+            conn.send({"type": "error", "message": "对局还没开始，等待两名玩家到齐"})
             return
         if self.over:
             conn.send({"type": "error", "message": "本局已结束，请重新开始"})
@@ -272,7 +275,7 @@ class PaodekuaiRoom:
         broadcast_locked(self)
 
     def handle_pass(self, conn):
-        if conn.color not in (1, 2, 3):
+        if conn.color not in (1, 2):
             conn.send({"type": "error", "message": "观众不能操作"})
             return
         if not self.started:
@@ -289,23 +292,22 @@ class PaodekuaiRoom:
             return
 
         self.passes += 1
-        if self.passes >= 2:
-            # 其余两家都过牌：最后出牌者重新领出
+        if self.passes >= 1:  # 二人局：对手过牌即回合结束
             self.turn = self.last_play["by"]
             self.last_play = None
             self.passes = 0
-            log(f"[跑得快] 两名玩家过牌，由玩家{self.turn}重新领出")
+            log(f"[跑得快] 对手过牌，由玩家{self.turn}重新领出")
         else:
             self.turn = self._next_turn(conn.color)
             log(f"[跑得快] 玩家{conn.color}过牌")
         broadcast_locked(self)
 
     def handle_restart(self, conn):
-        if conn.color not in (1, 2, 3):
+        if conn.color not in (1, 2):
             conn.send({"type": "error", "message": "观众不能重新开始"})
             return
-        if any(self.players[i] is None for i in (1, 2, 3)):
-            conn.send({"type": "error", "message": "需要三名玩家都在线才能重新开始"})
+        if any(self.players[i] is None for i in (1, 2)):
+            conn.send({"type": "error", "message": "需要两名玩家都在线才能重新开始"})
             return
         color = conn.color
         if self.restart_votes[color]:
@@ -315,7 +317,7 @@ class PaodekuaiRoom:
             return
         self.restart_votes[color] = True
         log(f"[跑得快] 玩家{color}请求重新开始")
-        if all(self.restart_votes[i] for i in (1, 2, 3)):
+        if all(self.restart_votes[i] for i in (1, 2)):
             self.reset(deal=True)
-            log("[跑得快] 三人确认，重新发牌")
+            log("[跑得快] 双方确认，重新发牌")
         broadcast_locked(self)

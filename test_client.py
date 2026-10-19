@@ -401,8 +401,8 @@ def test_lobby():
     print("[8/9] 大厅选玩法与开局流程      PASS")
 
 
-def read_states(clients):
-    return {color: expect(clients[color], "state") for color in (1, 2, 3)}
+def read_states(clients, colors=(1, 2, 3)):
+    return {color: expect(clients[color], "state") for color in colors}
 
 
 def test_paodekuai():
@@ -416,60 +416,46 @@ def test_paodekuai():
     k2 = WSClient()
     k2.send({"type": "join", "game": "paodekuai"})
     assert expect(k2, "hello")["color"] == 2
-    expect(k2, "state")
-    expect(k1, "state")
+    st = read_states({1: k1, 2: k2}, (1, 2))
+    assert st[1]["started"] is True, "两人到齐应自动发牌"
+    assert len(st[1]["hand"]) == 20 and len(st[2]["hand"]) == 20
+    assert st[1]["counts"] == {"1": 20, "2": 20}
+    assert st[1]["removedCount"] == 12, "应随机移除 12 张牌防记牌"
 
-    k3 = WSClient()
-    k3.send({"type": "join", "game": "paodekuai"})
-    assert expect(k3, "hello")["color"] == 3
-    st = read_states({1: k1, 2: k2, 3: k3})
-    assert st[1]["started"] is True, "三人到齐应自动发牌"
-    assert all(len(st[c]["hand"]) == 16 for c in (1, 2, 3))
-    assert sum(st[1]["counts"].values()) == 48
-
-    clients = {1: k1, 2: k2, 3: k3}
+    clients = {1: k1, 2: k2}
     turn = st[1]["turn"]
-    assert turn in (1, 2, 3)
+    assert turn in (1, 2)
     # 先手出一张单牌
     card = st[turn]["hand"][0]
     clients[turn].send({"type": "play", "cards": [card]})
     played = expect(clients[turn], "played")
     assert played["cards"] == [card]
-    st = read_states(clients)
-    assert st[1]["turn"] == (turn % 3 + 1), "出牌后应轮到下家"
+    st = read_states(clients, (1, 2))
+    other = 2 if turn == 1 else 1
+    assert st[1]["turn"] == other, "出牌后应轮到对手"
     assert st[1]["lastPlay"]["by"] == turn and st[1]["lastPlay"]["cards"] == [card]
 
     # 非当前玩家出牌 → 被拒绝
-    wrong = next(c for c in (1, 2, 3) if c != st[1]["turn"])
-    clients[wrong].send({"type": "play", "cards": [st[wrong]["hand"][0]]})
-    expect_error(clients[wrong], "轮")
+    clients[turn].send({"type": "play", "cards": [st[turn]["hand"][0]]})
+    expect_error(clients[turn], "轮")
 
-    # 其余两家依次过牌，回合回到最后出牌者
-    current = st[1]["turn"]
-    clients[current].send({"type": "pass"})
-    st = read_states(clients)
-    assert st[1]["lastPlay"] is not None
-    current = st[1]["turn"]
-    clients[current].send({"type": "pass"})
-    st = read_states(clients)
-    assert st[1]["lastPlay"] is None, "两家过牌后应重新领出"
+    # 对手过牌 → 回合回到最后出牌者
+    clients[other].send({"type": "pass"})
+    st = read_states(clients, (1, 2))
+    assert st[1]["lastPlay"] is None, "对手过牌后应重新领出"
     assert st[1]["turn"] == turn, "应回到最后出牌者"
 
-    # 三人确认后重新发牌
+    # 双方确认后重新发牌
     k1.send({"type": "restart"})
-    st = read_states(clients)
-    assert st[1]["restartVotes"] == {"1": True, "2": False, "3": False}, st[1]["restartVotes"]
+    st = read_states(clients, (1, 2))
+    assert st[1]["restartVotes"] == {"1": True, "2": False}, st[1]["restartVotes"]
     k2.send({"type": "restart"})
-    st = read_states(clients)
-    assert st[1]["restartVotes"]["2"] is True
-    k3.send({"type": "restart"})
-    st = read_states(clients)
+    st = read_states(clients, (1, 2))
     assert st[1]["started"] is True
-    assert all(len(st[c]["hand"]) == 16 for c in (1, 2, 3))
+    assert len(st[1]["hand"]) == 20 and len(st[2]["hand"]) == 20
 
     k1.close()
     k2.close()
-    k3.close()
     print("[9/9] 跑得快联机与出牌流程      PASS")
 
 

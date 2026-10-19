@@ -95,7 +95,7 @@
     <h1>棋类对战</h1>
     <div class="conn" id="conn">连接中…</div>
   </div>
-  <p class="sub">选择同一种玩法后进入对局 · 五子棋/象棋 2 人，跑得快 3 人 · 多开窗口即可联机</p>
+  <p class="sub">选择同一种玩法后进入对局 · 所有玩法均为 2 人 · 多开窗口即可联机</p>
   <div class="online">已连接玩家：<b id="online">0/3</b></div>
   <div class="notice" id="notice"></div>
   <div class="cards">
@@ -128,7 +128,7 @@
         </div>
       </div>
       <h2>跑得快</h2>
-      <p>三人牌局 · 48 张牌 · 红桃 3 先出 · 先出完手牌获胜</p>
+      <p>2 人牌局 · 52 张随机移 12 张 · 每人 20 张 · 先出完手牌获胜（防记牌）</p>
       <span class="go">选择此玩法 →</span>
     </div>
   </div>
@@ -137,7 +137,7 @@
 "use strict";
 
 const GAME_NAMES = { gomoku: "五子棋", xiangqi: "中国象棋", paodekuai: "跑得快" };
-const GAME_NEEDS = { gomoku: 2, xiangqi: 2, paodekuai: 3 };
+const GAME_NEEDS = { gomoku: 2, xiangqi: 2, paodekuai: 2 };
 
 const connEl = document.getElementById("conn");
 const onlineEl = document.getElementById("online");

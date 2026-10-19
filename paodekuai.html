@@ -87,7 +87,7 @@
 <body>
 <div class="app">
   <header>
-    <h1>跑得快 <small>三人牌局</small></h1>
+    <h1>跑得快 <small>二人牌局</small></h1>
     <div class="head-right">
       <a class="back" href="index.html">← 选择玩法</a>
       <div class="conn" id="conn">连接中…</div>
@@ -97,7 +97,6 @@
     <div class="seats">
       <div class="seat" id="seat1"><div class="name">玩家 1</div><div class="cnt" id="count-1">0 张</div></div>
       <div class="seat" id="seat2"><div class="name">玩家 2</div><div class="cnt" id="count-2">0 张</div></div>
-      <div class="seat" id="seat3"><div class="name">玩家 3</div><div class="cnt" id="count-3">0 张</div></div>
     </div>
 
     <div class="center">
@@ -107,7 +106,7 @@
     </div>
 
     <div class="hand-area">
-      <div class="hand-info">我的手牌：<b id="mycount">0</b> 张（点击选牌，再点取消）</div>
+      <div class="hand-info">我的手牌：<b id="mycount">0</b> 张（点击选牌，再点取消） · 本局随机移除 <b id="removed">12</b> 张（防记牌）</div>
       <div class="hand" id="hand"></div>
       <div class="actions">
         <button id="pass" class="secondary" disabled>过牌</button>
@@ -117,7 +116,7 @@
 
     <div class="bottom">
       <div class="status" id="status">正在连接服务器…</div>
-      <button id="restart" class="secondary" disabled>重新开始（三人确认）</button>
+      <button id="restart" class="secondary" disabled>重新开始（双方确认）</button>
     </div>
   </section>
 </div>
@@ -129,7 +128,7 @@ const RANK_TEXT = {
   11: "J", 12: "Q", 13: "K", 14: "A", 15: "2"
 };
 const SUIT_TEXT = ["♠", "♥", "♣", "♦"];
-const COLOR_NAMES = { 1: "玩家 1", 2: "玩家 2", 3: "玩家 3" };
+const COLOR_NAMES = { 1: "玩家 1", 2: "玩家 2" };
 
 const connEl = document.getElementById("conn");
 const statusEl = document.getElementById("status");
@@ -139,6 +138,7 @@ const mycountEl = document.getElementById("mycount");
 const playBtn = document.getElementById("play");
 const passBtn = document.getElementById("pass");
 const restartBtn = document.getElementById("restart");
+const removedEl = document.getElementById("removed");
 
 const placeSound = new Audio("assets/sounds/place.ogg?v=2");
 placeSound.preload = "auto";
@@ -146,10 +146,10 @@ const winSound = new Audio("assets/sounds/win.ogg?v=2");
 winSound.preload = "auto";
 
 let state = {
-  you: 0, hand: [], counts: { "1": 0, "2": 0, "3": 0 },
+  you: 0, hand: [], counts: { "1": 0, "2": 0 },
   turn: null, lastPlay: null, started: false, over: false, winner: null,
-  players: { "1": false, "2": false, "3": false }, connected: 0,
-  restartVotes: { "1": false, "2": false, "3": false }
+  players: { "1": false, "2": false }, connected: 0,
+  restartVotes: { "1": false, "2": false }, removedCount: 12
 };
 let ws = null;
 let selected = {};       // "r,s" -> true
@@ -199,7 +199,7 @@ function renderHand() {
 function renderLastPlay() {
   lastplayEl.innerHTML = "";
   if (!state.started) {
-    lastplayEl.innerHTML = '<div class="empty">等待三名玩家到齐…</div>';
+    lastplayEl.innerHTML = '<div class="empty">等待两名玩家到齐…</div>';
     return;
   }
   if (!state.lastPlay) {
@@ -219,7 +219,7 @@ function renderLastPlay() {
 function updateUI() {
   const s = state;
 
-  for (const color of (1, 2, 3)) {
+  for (const color of (1, 2)) {
     const seat = document.getElementById("seat" + color);
     const countEl = document.getElementById("count-" + color);
     const present = s.players[String(color)];
@@ -232,27 +232,28 @@ function updateUI() {
       (s.you === color ? "我" : COLOR_NAMES[color]) + (present ? "" : "（离线）");
   }
   mycountEl.textContent = (s.hand || []).length;
+  removedEl.textContent = s.removedCount != null ? s.removedCount : 12;
 
   const myTurn = s.started && !s.over && s.turn === s.you && s.you !== 0;
   const selCount = Object.keys(selected).length;
   playBtn.disabled = !(myTurn && selCount > 0);
   passBtn.disabled = !(myTurn && s.lastPlay !== null);
-  restartBtn.disabled = s.you === 0 || s.connected < 3;
+  restartBtn.disabled = s.you === 0 || s.connected < 2;
   const votes = s.restartVotes || {};
-  const voteCount = (votes["1"] ? 1 : 0) + (votes["2"] ? 1 : 0) + (votes["3"] ? 1 : 0);
+  const voteCount = (votes["1"] ? 1 : 0) + (votes["2"] ? 1 : 0);
   if (s.you && votes[String(s.you)]) {
-    restartBtn.textContent = "等待其他玩家确认（点击取消，已确认 " + voteCount + "/3）";
+    restartBtn.textContent = "等待对方确认（点击取消，已确认 " + voteCount + "/2）";
   } else if (voteCount > 0) {
-    restartBtn.textContent = "重新开始（三人确认，已确认 " + voteCount + "/3）";
+    restartBtn.textContent = "重新开始（双方确认，已确认 " + voteCount + "/2）";
   } else {
-    restartBtn.textContent = "重新开始（三人确认）";
+    restartBtn.textContent = "重新开始（双方确认）";
   }
 
   let text;
   if (!s.you) {
     text = "观众模式：正在观战。";
   } else if (!s.started) {
-    text = "等待玩家加入（" + (s.connected || 0) + "/3）…";
+    text = "等待玩家加入（" + (s.connected || 0) + "/2）…";
   } else if (s.over) {
     if (s.winner === 0) text = "对局中断（有玩家离开）。";
     else if (s.winner === s.you) text = "你出完了手牌，获胜！";

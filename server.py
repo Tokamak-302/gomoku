@@ -166,7 +166,7 @@ class Room:
         }
 
 
-GAME_NEEDS = {"gomoku": 2, "xiangqi": 2, "paodekuai": 3}
+GAME_NEEDS = {"gomoku": 2, "xiangqi": 2, "paodekuai": 2}
 
 
 class LobbyRoom:
