@@ -52,6 +52,9 @@ py -3 gomoku/xiangqi_rules_test.py
 
 # 跑得快规则单测（不需要服务器）
 py -3 gomoku/paodekuai_rules_test.py
+
+# 前端页面冒烟测试（用 DOM 桩执行各页脚本，捕获运行时错误）
+node gomoku/frontend_smoke_test.js
 ```
 
 联机自测覆盖：开始界面与三个游戏页可访问、五子棋黑白分配/非法落子/五连/悔棋虚影/双方确认重开、

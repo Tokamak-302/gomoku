@@ -23,6 +23,7 @@ import socket
 import ssl
 import struct
 import sys
+import time
 import urllib.parse
 import urllib.request
 
@@ -395,9 +396,33 @@ def test_lobby():
     st1 = expect(l1, "start")
     st2 = expect(l2, "start")
     assert st1["game"] == "gomoku" and st2["game"] == "gomoku"
-
     l1.close()
     l2.close()
+    time.sleep(0.4)  # 等大厅释放座位
+
+    # 跑得快同样可通过大厅按 2 人开局
+    m1 = WSClient()
+    m1.send({"type": "join", "game": "lobby"})
+    expect(m1, "hello")
+    s1 = expect(m1, "lobby_state")
+    m2 = WSClient()
+    m2.send({"type": "join", "game": "lobby"})
+    expect(m2, "hello")
+    s2 = expect(m2, "lobby_state")
+    s1 = expect(m1, "lobby_state")
+    assert s1["connected"] == 2, s1
+    m1.send({"type": "select", "game": "paodekuai"})
+    expect(m1, "lobby_state")
+    expect(m2, "lobby_state")
+    m2.send({"type": "select", "game": "paodekuai"})
+    expect(m1, "lobby_state")
+    expect(m2, "lobby_state")
+    st1 = expect(m1, "start")
+    st2 = expect(m2, "start")
+    assert st1["game"] == "paodekuai" and st2["game"] == "paodekuai"
+    m1.close()
+    m2.close()
+
     print("[8/9] 大厅选玩法与开局流程      PASS")
 
 

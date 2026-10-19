@@ -219,7 +219,7 @@ function renderLastPlay() {
 function updateUI() {
   const s = state;
 
-  for (const color of (1, 2)) {
+  for (const color of [1, 2]) {
     const seat = document.getElementById("seat" + color);
     const countEl = document.getElementById("count-" + color);
     const present = s.players[String(color)];

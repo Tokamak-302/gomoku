@@ -183,6 +183,10 @@ class PaodekuaiRoom:
             self.winner = 0
             self.last_play = None
             log(f"[跑得快] 玩家{conn.color}离开，对局中断")
+        # 所有玩家都离开后清空房间，避免新玩家进来看到上一局的残留状态
+        if not any(self.players[i] is not None for i in (1, 2)):
+            self.reset(deal=False)
+            log("[跑得快] 所有玩家已离开，房间已重置")
 
     def state_for(self, conn):
         hand = self.hands[conn.color] if conn.color in (1, 2) else []
