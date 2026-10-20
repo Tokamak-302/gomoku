@@ -55,6 +55,9 @@ py -3 gomoku/paodekuai_rules_test.py
 
 # 前端页面冒烟测试（用 DOM 桩执行各页脚本，捕获运行时错误）
 node gomoku/frontend_smoke_test.js
+
+# 象棋前端交互回归（模拟点击选马/走子，覆盖翻转视角与马腿挡子）
+node gomoku/xiangqi_interact_test.js
 ```
 
 联机自测覆盖：开始界面与三个游戏页可访问、五子棋黑白分配/非法落子/五连/悔棋虚影/双方确认重开、

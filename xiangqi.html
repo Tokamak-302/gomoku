@@ -203,7 +203,7 @@ function computeBlockers(piece, r, c) {
       const tr = r + d[0], tc = c + d[1];
       if (tr < 0 || tr >= ROWS || tc < 0 || tc >= COLS) continue;
       const t = state.board[tr][tc];
-      if (t !== null && t.isupper() === red) continue;
+      if (t !== null && (t === t.toUpperCase()) === red) continue;
       const legR = (Math.abs(d[0]) === 2) ? (r + d[0] / 2) : r;
       const legC = (Math.abs(d[0]) === 2) ? c : (c + d[1] / 2);
       add(legR, legC);
@@ -216,7 +216,7 @@ function computeBlockers(piece, r, c) {
       if (red && tr < 5) continue;
       if ((!red) && tr > 4) continue;
       const t = state.board[tr][tc];
-      if (t !== null && t.isupper() === red) continue;
+      if (t !== null && (t === t.toUpperCase()) === red) continue;
       add(r + d[0] / 2, c + d[1] / 2);
     }
   }
