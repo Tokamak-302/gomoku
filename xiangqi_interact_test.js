@@ -9,7 +9,10 @@ const fs = require("fs");
 const vm = require("vm");
 const path = require("path");
 
-const html = fs.readFileSync(path.join(__dirname, "xiangqi.html"), "utf8");
+const testFile = process.argv[2]
+  ? path.resolve(process.argv[2])
+  : path.join(__dirname, "xiangqi.html");
+const html = fs.readFileSync(testFile, "utf8");
 const m = html.match(/<script>\s*"use strict";([\s\S]*?)<\/script>/);
 if (!m) {
   console.log("找不到内联脚本");
@@ -93,16 +96,16 @@ const sandbox = {
   Array: Array, Set: Set, setTimeout: setTimeout, clearTimeout: clearTimeout
 };
 
-vm.runInNewContext(code, sandbox, { filename: "xiangqi.html", timeout: 5000 });
+vm.runInNewContext(code + "\n;globalThis.__sel = function(){ return selected; };", sandbox, { filename: "xiangqi.html", timeout: 5000 });
 wsInstance.onopen();
 
 let failures = 0;
-function check(name, cond) {
+function check(name, cond, detail) {
   if (cond) {
     console.log("PASS", name);
   } else {
     failures += 1;
-    console.log("FAIL", name);
+    console.log("FAIL", name, detail === undefined ? "" : detail);
   }
 }
 
@@ -190,6 +193,20 @@ click(5, 5);
 check("全方向被挡的马仍能选中", sent.some(function (msg) {
   return msg.type === "legal" && msg.from[0] === 5;
 }));
+
+// 6. 没有任何合法走法的棋子也应允许选中（选中状态保留）
+sent.length = 0;
+feedState(makeBoard([[9, 4, "K"], [0, 4, "k"], [9, 2, "B"], [7, 0, "P"], [7, 4, "P"]]), 1, 1);
+click(9, 2);
+check("无合法走法的象也能选中（发出 legal）", sent.some(function (msg) {
+  return msg.type === "legal" && msg.from[0] === 9 && msg.from[1] === 2;
+}));
+wsInstance.onmessage({ data: JSON.stringify({
+  type: "legal", from: [9, 2], moves: [], captures: {}, captureBy: {}
+}) });
+check("无合法走法时选中状态保留", !!(sandbox.__sel && sandbox.__sel()));
+const statusText = sandbox.document.getElementById("status").textContent;
+check("无合法走法时状态栏给出提示", statusText.indexOf("没有可走的位置") >= 0, statusText);
 
 console.log("-".repeat(32));
 console.log(failures === 0 ? "全部通过 ✔" : failures + " 项失败");

@@ -547,9 +547,13 @@ function updateUI() {
       : "等待另一位玩家加入…（把地址发给对方，或再开一个窗口）";
   } else if (s.turn === s.you) {
     if (s.inCheck) text = "你被将军了！请应将。";
-    else text = selected
-      ? "已选中棋子：绿点＝可走，红圈＝可吃；悬停落点可预览对方反吃。"
-      : "轮到你走棋（你执" + (s.you === 1 ? "红方" : "黑方") + "）。";
+    else if (selected) {
+      text = legalMoves.length
+        ? "已选中棋子：绿点＝可走，红圈＝可吃；悬停落点可预览对方反吃。"
+        : "已选中棋子：该棋子当前没有可走的位置。";
+    } else {
+      text = "轮到你走棋（你执" + (s.you === 1 ? "红方" : "黑方") + "）。";
+    }
   } else {
     text = s.inCheck ? "对方被将军了！" : "等待对方走棋…";
   }
