@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>红心大战 · 双人组队</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh;
+    background: radial-gradient(1200px 800px at 20% 0%, #232a36, #12151b 60%);
+    color: #e8e8ea;
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    padding: 18px;
+  }
+  .app { width: 100%; max-width: 1000px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+  h1 { margin: 0; font-size: 24px; letter-spacing: 2px; font-weight: 600; }
+  h1 small { font-size: 12px; color: #8f9bb0; letter-spacing: 0; margin-left: 10px; font-weight: 400; }
+  .head-right { display: flex; align-items: center; gap: 12px; }
+  .back { color: #9fb0c9; text-decoration: none; font-size: 13px; }
+  .back:hover { text-decoration: underline; }
+  .conn { font-size: 13px; padding: 4px 12px; border-radius: 999px; background: #2a3140; color: #9fb0c9; }
+  .conn.ok { background: #173527; color: #5fd18b; }
+  .conn.bad { background: #3a1f22; color: #ff8a80; }
+
+  .table {
+    background: #1b212c; border-radius: 16px; padding: 16px;
+    box-shadow: 0 12px 36px rgba(0,0,0,.4);
+  }
+  .seats {
+    display: grid; grid-template-columns: 150px 1fr 150px;
+    grid-template-rows: auto auto auto; gap: 8px;
+  }
+  .seat {
+    background: #151a23; border: 1px solid #2a3140; border-radius: 10px;
+    padding: 8px 10px; text-align: center; font-size: 13px;
+  }
+  .seat.team-ns { border-color: #3d6fd4; }
+  .seat.team-ew { border-color: #8a3a3a; }
+  .seat.active { box-shadow: 0 0 14px rgba(255, 211, 77, .5); border-color: #ffd34d; }
+  .seat .name { font-weight: 600; color: #e8e8ea; }
+  .seat .role { font-size: 11px; color: #8f9bb0; margin-top: 2px; }
+  .seat .cnt { color: #f0c060; margin-top: 2px; }
+  .seat-top { grid-column: 2; grid-row: 1; justify-self: center; width: 160px; }
+  .seat-left { grid-column: 1; grid-row: 2; align-self: center; }
+  .seat-right { grid-column: 3; grid-row: 2; align-self: center; }
+
+  .center {
+    grid-column: 2; grid-row: 2; position: relative;
+    min-height: 260px; display: flex; align-items: center; justify-content: center;
+  }
+  .trick-slot {
+    position: absolute; display: flex; align-items: center; justify-content: center;
+  }
+  .slot-top { top: 6px; left: 50%; transform: translateX(-50%); }
+  .slot-left { left: 6px; top: 50%; transform: translateY(-50%); }
+  .slot-right { right: 6px; top: 50%; transform: translateY(-50%); }
+  .slot-bottom { bottom: 6px; left: 50%; transform: translateX(-50%); }
+  .trick-empty { color: #5f6b7e; font-size: 13px; }
+
+  .card {
+    width: 46px; height: 64px; border-radius: 8px; background: #f7f4ec;
+    color: #222; border: 1px solid #b9b3a3; box-shadow: 0 3px 8px rgba(0,0,0,.35);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-weight: 700; user-select: none; flex: none;
+  }
+  .card .rank { font-size: 16px; line-height: 1; }
+  .card .suit { font-size: 15px; line-height: 1.2; }
+  .card.red { color: #b22222; }
+  .card.small { width: 38px; height: 54px; }
+  .card.small .rank { font-size: 13px; }
+  .card.small .suit { font-size: 12px; }
+
+  .mine { grid-column: 1 / -1; grid-row: 3; margin-top: 8px; }
+  .my-seat { display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 13px; color: #9fb0c9; margin-bottom: 6px; }
+  .hand {
+    display: flex; justify-content: center; align-items: flex-end;
+    padding: 6px 0 22px; min-height: 96px;
+  }
+  .hand .card { cursor: pointer; margin-right: -18px; transition: transform .1s ease, box-shadow .1s ease; }
+  .hand .card:last-child { margin-right: 0; }
+  .hand .card.selected { transform: translateY(-14px); box-shadow: 0 6px 16px rgba(255, 211, 77, .6); border-color: #ffd34d; }
+  .hand .card.legal { box-shadow: 0 0 0 2px rgba(95, 209, 139, .75); }
+  .hand .card.dim { opacity: .45; }
+
+  .actions { display: flex; gap: 10px; justify-content: center; margin: 4px 0 8px; flex-wrap: wrap; }
+  button {
+    padding: 10px 24px; border: 0; border-radius: 10px; font-size: 15px; cursor: pointer;
+    background: #3d6fd4; color: #fff; font-weight: 600;
+  }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button:hover:not(:disabled) { background: #4a80ec; }
+  button.secondary { background: #2a3140; color: #cfd6e2; }
+  button.secondary:hover:not(:disabled) { background: #364050; }
+  button.highlight { background: #c9a227; }
+
+  .info-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    flex-wrap: wrap; margin-top: 6px;
+  }
+  .status { flex: 1 1 320px; padding: 10px 14px; background: #151a23; border-radius: 10px; font-size: 13px; line-height: 1.5; min-height: 42px; }
+  .status.bad { color: #ff8a80; }
+  .badge { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: #2a3140; color: #9fb0c9; }
+  .badge.broken { background: #3a1f22; color: #ff8a80; }
+  .scores { display: flex; gap: 14px; font-size: 13px; color: #c9d4e4; }
+  .scores b { font-size: 16px; }
+  .team-ns-text { color: #6fa0ff; }
+  .team-ew-text { color: #ff8a80; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>红心大战 <small>双人组队 vs 电脑</small></h1>
+    <div class="head-right">
+      <a class="back" href="index.html">← 选择玩法</a>
+      <div class="conn" id="conn">连接中…</div>
+    </div>
+  </header>
+
+  <section class="table">
+    <div class="seats">
+      <div class="seat seat-top" id="seat-top"></div>
+      <div class="seat seat-left" id="seat-left"></div>
+      <div class="center">
+        <div class="trick-slot slot-top" id="trick-top"></div>
+        <div class="trick-slot slot-left" id="trick-left"></div>
+        <div class="trick-slot slot-right" id="trick-right"></div>
+        <div class="trick-slot slot-bottom" id="trick-bottom"></div>
+        <div class="trick-empty" id="trick-empty">等待发牌…</div>
+      </div>
+      <div class="seat seat-right" id="seat-right"></div>
+
+      <div class="mine">
+        <div class="my-seat" id="my-seat">我的座位：—</div>
+        <div class="hand" id="hand"></div>
+        <div class="actions">
+          <button id="pass" class="secondary" disabled>换牌</button>
+          <button id="play" disabled>出牌</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="info-row">
+      <div class="status" id="status">正在连接服务器…</div>
+      <div class="badge" id="hearts-badge">红心未破</div>
+      <div class="scores">
+        <span>蓝队 N/S <b class="team-ns-text" id="score-ns">0</b></span>
+        <span>红队 E/W <b class="team-ew-text" id="score-ew">0</b></span>
+      </div>
+      <button id="restart" class="secondary" disabled>重新开始（双方确认）</button>
+    </div>
+  </section>
+</div>
+
+<script>
+"use strict";
+
+const RANK_TEXT = {
+  2: "2", 3: "3", 4: "4", 5: "5", 6: "6", 7: "7", 8: "8", 9: "9", 10: "10",
+  11: "J", 12: "Q", 13: "K", 14: "A"
+};
+const SUIT_TEXT = ["♣", "♦", "♥", "♠"];
+const SUIT_ORDER = { 0: 0, 1: 1, 2: 2, 3: 3 };
+const SEAT_NAMES = ["N", "E", "S", "W"];
+const SEAT_NAME_CN = ["北", "东", "南", "西"];
+const TEAM_OF_SEAT = [0, 1, 0, 1];  // 0=NS 蓝队，1=EW 红队
+
+const connEl = document.getElementById("conn");
+const statusEl = document.getElementById("status");
+const handEl = document.getElementById("hand");
+const badgeEl = document.getElementById("hearts-badge");
+const scoreNsEl = document.getElementById("score-ns");
+const scoreEwEl = document.getElementById("score-ew");
+const mySeatEl = document.getElementById("my-seat");
+const passBtn = document.getElementById("pass");
+const playBtn = document.getElementById("play");
+const restartBtn = document.getElementById("restart");
+
+const trickEls = {
+  top: document.getElementById("trick-top"),
+  left: document.getElementById("trick-left"),
+  right: document.getElementById("trick-right"),
+  bottom: document.getElementById("trick-bottom")
+};
+const trickEmptyEl = document.getElementById("trick-empty");
+
+const placeSound = new Audio("assets/sounds/place.ogg?v=2");
+placeSound.preload = "auto";
+const winSound = new Audio("assets/sounds/win.ogg?v=2");
+winSound.preload = "auto";
+
+let state = {
+  you: null, seatName: null, phase: "idle", handNumber: 0, passDirection: "left",
+  passReady: { "0": false, "1": false, "2": false, "3": false },
+  hand: [], counts: { "0": 0, "1": 0, "2": 0, "3": 0 },
+  trick: [], legal: [], turn: 0, heartsBroken: false, firstTrick: true,
+  scores: { NS: 0, EW: 0 }, handPoints: { "0": 0, "1": 0, "2": 0, "3": 0 },
+  lastHandScores: null, over: false, winner: null,
+  players: { N: false, S: false }, connected: 0,
+  restartVotes: { "1": false, "2": false }
+};
+let ws = null;
+let selected = {};        // "r,s" -> true
+let flashTimer = null;
+let firstState = true;
+let prevTrickKey = "";
+let prevOver = false;
+let navigating = false;
+
+function setConn(text, cls) {
+  connEl.textContent = text;
+  connEl.className = "conn" + (cls ? " " + cls : "");
+}
+
+function cardEl(card, small) {
+  const el = document.createElement("div");
+  const red = card.s === 1 || card.s === 2;
+  el.className = "card" + (small ? " small" : "") + (red ? " red" : "");
+  const rank = document.createElement("span");
+  rank.className = "rank";
+  rank.textContent = RANK_TEXT[card.r] || "?";
+  const suit = document.createElement("span");
+  suit.className = "suit";
+  suit.textContent = SUIT_TEXT[card.s] || "?";
+  el.appendChild(rank);
+  el.appendChild(suit);
+  return el;
+}
+
+function seatLabel(seat) {
+  return SEAT_NAMES[seat] + "座（" + SEAT_NAME_CN[seat] + "）";
+}
+
+function roleText(seat) {
+  if (state.you === seat) return "你";
+  if (state.you !== null && SEAT_NAME_CN[seat] && Math.abs(seat - state.you) === 2) {
+    return "队友（玩家）";
+  }
+  if (seat === 1 || seat === 3) return "电脑";
+  return "玩家";
+}
+
+function myTeam() {
+  if (state.you === null) return null;
+  return TEAM_OF_SEAT[state.you] === 0 ? "NS" : "EW";
+}
+
+function teamName(team) {
+  return team === "NS" ? "蓝队（N/S）" : "红队（E/W）";
+}
+
+function updateSeats() {
+  const top = state.you === null ? 0 : (state.you + 2) % 4;
+  const left = state.you === null ? 1 : (state.you + 1) % 4;
+  const right = state.you === null ? 3 : (state.you + 3) % 4;
+  fillSeat("seat-top", top);
+  fillSeat("seat-left", left);
+  fillSeat("seat-right", right);
+  if (state.you !== null) {
+    mySeatEl.textContent = "我的座位：" + seatLabel(state.you);
+  } else {
+    mySeatEl.textContent = "观众模式";
+  }
+}
+
+function fillSeat(elId, seat) {
+  const el = document.getElementById(elId);
+  el.className = "seat " + (elId === "seat-top" ? "seat-top" :
+    elId === "seat-left" ? "seat-left" : "seat-right") +
+    (TEAM_OF_SEAT[seat] === 0 ? " team-ns" : " team-ew") +
+    (state.phase === "play" && state.turn === seat && !state.over ? " active" : "");
+  el.innerHTML = "";
+  const name = document.createElement("div");
+  name.className = "name";
+  name.textContent = seatLabel(seat);
+  const role = document.createElement("div");
+  role.className = "role";
+  role.textContent = roleText(seat);
+  const cnt = document.createElement("div");
+  cnt.className = "cnt";
+  cnt.textContent = "剩 " + (state.counts[String(seat)] || 0) + " 张";
+  el.appendChild(name);
+  el.appendChild(role);
+  el.appendChild(cnt);
+}
+
+function renderHand() {
+  handEl.innerHTML = "";
+  const cards = (state.hand || []).slice().sort(function (a, b) {
+    const sa = SUIT_ORDER[a.s] !== undefined ? a.s : 9;
+    const sb = SUIT_ORDER[b.s] !== undefined ? b.s : 9;
+    return sa !== sb ? sa - sb : a.r - b.r;
+  });
+  const legalSet = {};
+  for (const c of (state.legal || [])) legalSet[c.r + "," + c.s] = true;
+  const myTurn = state.phase === "play" && state.you !== null && state.turn === state.you && !state.over;
+  const canSelect = myTurn || (state.phase === "pass" && state.you !== null);
+
+  for (const card of cards) {
+    const el = cardEl(card, false);
+    el.dataset.key = card.r + "," + card.s;
+    if (selected[el.dataset.key]) el.classList.add("selected");
+    if (canSelect) {
+      if (myTurn) {
+        if (legalSet[el.dataset.key]) el.classList.add("legal");
+        else el.classList.add("dim");
+      }
+      el.addEventListener("click", function () { toggleCard(el.dataset.key); });
+    }
+    handEl.appendChild(el);
+  }
+}
+
+function toggleCard(key) {
+  if (!state.you) return;
+  if (state.phase === "pass") {
+    if (selected[key]) {
+      delete selected[key];
+    } else if (Object.keys(selected).length < 3) {
+      selected[key] = true;
+    } else {
+      flash("最多选择 3 张要换的牌", false);
+      return;
+    }
+  } else if (state.phase === "play") {
+    const allowed = {};
+    for (const c of (state.legal || [])) allowed[c.r + "," + c.s] = true;
+    if (!allowed[key]) return;
+    if (selected[key]) delete selected[key];
+    else {
+      selected = {};
+      selected[key] = true;
+    }
+  }
+  renderHand();
+  updateUI();
+}
+
+function renderTrick() {
+  for (const key in trickEls) {
+    trickEls[key].innerHTML = "";
+  }
+  if (!state.trick || state.trick.length === 0) {
+    trickEmptyEl.style.display = "";
+    showTrickEmpty();
+    return;
+  }
+  trickEmptyEl.style.display = "none";
+  for (const play of state.trick) {
+    let pos = "bottom";
+    if (state.you !== null) {
+      if (play.seat === (state.you + 2) % 4) pos = "top";
+      else if (play.seat === (state.you + 1) % 4) pos = "left";
+      else if (play.seat === (state.you + 3) % 4) pos = "right";
+      else pos = "bottom";
+    } else {
+      pos = ["bottom", "left", "top", "right"][play.seat] || "bottom";
+    }
+    trickEls[pos].appendChild(cardEl(play.card, true));
+  }
+}
+
+function showTrickEmpty() {
+  trickEmptyEl.textContent = state.phase === "play"
+    ? "本墩：等待出牌…"
+    : (state.phase === "pass" ? "换牌阶段" : "等待发牌…");
+}
+
+function updateUI() {
+  const s = state;
+  updateSeats();
+  renderHand();
+  renderTrick();
+
+  scoreNsEl.textContent = s.scores.NS;
+  scoreEwEl.textContent = s.scores.EW;
+  badgeEl.textContent = s.heartsBroken ? "红心已破" : "红心未破";
+  badgeEl.className = "badge" + (s.heartsBroken ? " broken" : "");
+
+  const myKey = s.you === 0 ? "1" : (s.you === 2 ? "2" : "");
+  const partnerSeat = s.you === null ? null : (s.you + 2) % 4;
+  const partnerColor = partnerSeat === 0 ? "1" : (partnerSeat === 2 ? "2" : "");
+  const votes = s.restartVotes || {};
+  const myVote = myKey && votes[myKey];
+  const oppVote = partnerColor && votes[partnerColor];
+  restartBtn.disabled = s.you === null;
+
+  const selCount = Object.keys(selected).length;
+  const myTurn = s.phase === "play" && s.you !== null && s.turn === s.you && !s.over;
+  passBtn.disabled = !(s.phase === "pass" && s.you !== null && !s.passReady[String(s.you)] && selCount === 3);
+  playBtn.disabled = !(myTurn && selCount === 1);
+
+  let text;
+  if (s.phase === "idle") {
+    text = "等待两名玩家加入（" + (s.connected || 0) + "/2）…";
+  } else if (s.over) {
+    if (s.winner === null) text = "对局结束：平局。";
+    else text = "对局结束：" + teamName(s.winner) + " 获胜！";
+  } else if (s.phase === "pass") {
+    const dirText = { left: "向左家", right: "向右家", across: "与对家", keep: "不换牌" }[s.passDirection] || "";
+    const readyMe = s.passReady[String(s.you)];
+    if (readyMe) text = "已选择换牌，等待队友确认…";
+    else text = "换牌阶段（" + dirText + "换 3 张）：选中 3 张后点「换牌」。";
+  } else if (myTurn) {
+    text = s.firstTrick
+      ? "轮到你出牌：首墩必须出 ♣2（领出），且本墩不能出红心/黑桃Q。"
+      : "轮到你出牌。";
+  } else {
+    const turnName = SEAT_NAMES[s.turn] || "?";
+    text = "等待 " + turnName + " 座（" + (s.turn === 1 || s.turn === 3 ? "电脑" : "玩家") + "）出牌…";
+  }
+  if (s.lastHandScores) {
+    const m = s.lastHandScores;
+    text += " 上一手：蓝队 +" + m.NS + "，红队 +" + m.EW +
+      (m.moon ? "（" + m.moon + " 全收）" : "");
+  }
+  statusEl.textContent = text;
+  statusEl.classList.toggle("bad", s.over);
+
+  if (s.over) {
+    restartBtn.textContent = "再来一局（双方确认）";
+  } else if (myVote) {
+    restartBtn.textContent = "等待队友确认（点击取消）";
+  } else if (oppVote) {
+    restartBtn.textContent = "队友想重新开始，点击同意";
+    restartBtn.classList.add("highlight");
+  } else {
+    restartBtn.textContent = "重新开始（双方确认）";
+    restartBtn.classList.remove("highlight");
+  }
+}
+
+function flash(text, isError) {
+  if (flashTimer) clearTimeout(flashTimer);
+  statusEl.textContent = text;
+  statusEl.classList.toggle("bad", isError !== false);
+  flashTimer = setTimeout(function () {
+    flashTimer = null;
+    updateUI();
+  }, 1800);
+}
+
+function playSound(audio, delayMs) {
+  setTimeout(function () {
+    try {
+      audio.currentTime = 0;
+      const p = audio.play();
+      if (p && p.catch) p.catch(function () {});
+    } catch (err) { /* 忽略 */ }
+  }, delayMs || 0);
+}
+
+function wsUrl() {
+  const scheme = location.protocol === "https:" ? "wss" : "ws";
+  let host = location.host;
+  if (location.hostname === "localhost") {
+    host = "127.0.0.1" + (location.port ? ":" + location.port : "");
+  }
+  return scheme + "://" + host + "/";
+}
+
+function connect() {
+  setConn("连接中…", "");
+  ws = new WebSocket(wsUrl());
+  ws.onopen = () => {
+    firstState = true;
+    prevTrickKey = "";
+    prevOver = false;
+    setConn("已连接", "ok");
+    ws.send(JSON.stringify({ type: "join", game: "hearts" }));
+  };
+  ws.onmessage = (evt) => {
+    let msg;
+    try { msg = JSON.parse(evt.data); } catch (err) { return; }
+    if (msg.type === "state") {
+      const trickKey = JSON.stringify(msg.trick || []);
+      if (!firstState) {
+        if (trickKey !== prevTrickKey) playSound(placeSound);
+        if (msg.over && !prevOver && msg.winner !== null && msg.winner === myTeamOf(msg)) {
+          playSound(winSound, 250);
+        }
+      }
+      prevTrickKey = trickKey;
+      prevOver = msg.over;
+      firstState = false;
+      // 手牌变化 / 进入新一手时清空选择
+      if (msg.phase !== state.phase || msg.handNumber !== state.handNumber ||
+          (msg.hand || []).length !== (state.hand || []).length) {
+        selected = {};
+      }
+      state = msg;
+      updateUI();
+    } else if (msg.type === "error") {
+      flash(msg.message || "出错了");
+    }
+  };
+  ws.onclose = () => {
+    setConn("已断开，重连中…", "bad");
+    setTimeout(connect, 1200);
+  };
+  ws.onerror = () => {
+    try { ws.close(); } catch (err) {}
+  };
+}
+
+function myTeamOf(msg) {
+  if (msg.you === null || msg.you === undefined) return null;
+  return TEAM_OF_SEAT[msg.you] === 0 ? "NS" : "EW";
+}
+
+passBtn.addEventListener("click", function () {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const cards = Object.keys(selected).map(function (key) {
+    const parts = key.split(",");
+    return { r: Number(parts[0]), s: Number(parts[1]) };
+  });
+  if (cards.length !== 3) return;
+  ws.send(JSON.stringify({ type: "pass", cards: cards }));
+});
+
+playBtn.addEventListener("click", function () {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const keys = Object.keys(selected);
+  if (keys.length !== 1) return;
+  const parts = keys[0].split(",");
+  ws.send(JSON.stringify({ type: "play", card: { r: Number(parts[0]), s: Number(parts[1]) } }));
+});
+
+restartBtn.addEventListener("click", function () {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: "restart" }));
+});
+
+updateUI();
+connect();
+</script>
+</body>
+</html>

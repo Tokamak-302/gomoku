@@ -23,6 +23,7 @@ from pathlib import Path
 
 from xiangqi import XiangqiRoom
 from paodekuai import PaodekuaiRoom
+from hearts import HeartsRoom
 
 BOARD_SIZE = 15
 STATIC_DIR = Path(__file__).resolve().parent
@@ -166,7 +167,7 @@ class Room:
         }
 
 
-GAME_NEEDS = {"gomoku": 2, "xiangqi": 2, "paodekuai": 2}
+GAME_NEEDS = {"gomoku": 2, "xiangqi": 2, "paodekuai": 2, "hearts": 2}
 
 
 class LobbyRoom:
@@ -201,7 +202,7 @@ class LobbyRoom:
         if conn.color not in (1, 2, 3):
             conn.send({"type": "error", "message": "观众不能选择玩法"})
             return
-        if game not in (None, "gomoku", "xiangqi", "paodekuai"):
+        if game not in (None, "gomoku", "xiangqi", "paodekuai", "hearts"):
             conn.send({"type": "error", "message": "未知玩法: %s" % game})
             return
         if game is not None and self.selections[conn.color] == game:
@@ -231,6 +232,7 @@ ROOMS = {
     "gomoku": Room(),
     "xiangqi": XiangqiRoom(),
     "paodekuai": PaodekuaiRoom(),
+    "hearts": HeartsRoom(),
     "lobby": LobbyRoom(),
 }
 
@@ -332,7 +334,7 @@ def serve_http_request(sock, method, path, headers):
     except ValueError:
         inside = False
     # 只开放页面本身与 assets/ 下的静态资源（音效、威胁检测脚本等）
-    pages = ("index.html", "gomoku.html", "xiangqi.html", "paodekuai.html")
+    pages = ("index.html", "gomoku.html", "xiangqi.html", "paodekuai.html", "hearts.html")
     allowed = inside and (rel in pages or rel.startswith("assets/")) \
         and target.is_file()
 
@@ -546,6 +548,17 @@ def handle_message(conn, text):
                 conn.send({"type": "pong"})
             else:
                 conn.send({"type": "error", "message": "未知消息类型: %s" % mtype})
+        elif conn.game == "hearts":
+            if mtype == "play":
+                room.handle_play(conn, msg)
+            elif mtype == "pass":
+                room.handle_pass(conn, msg)
+            elif mtype == "restart":
+                room.handle_restart(conn)
+            elif mtype == "ping":
+                conn.send({"type": "pong"})
+            else:
+                conn.send({"type": "error", "message": "未知消息类型: %s" % mtype})
         else:  # lobby
             if mtype == "select":
                 room.handle_select(conn, msg.get("game"))
@@ -692,7 +705,7 @@ def main():
 
     shown = "127.0.0.1" if HOST == "0.0.0.0" else HOST
     log("=" * 52)
-    log(" 棋类对战 · 联机服务已启动（五子棋 / 中国象棋 / 跑得快）")
+    log(" 棋类对战 · 联机服务已启动（五子棋 / 中国象棋 / 跑得快 / 红心大战）")
     log(f" 本机访问 : http://{shown}:{PORT}")
     log(" 部署平台 : 自动使用环境变量 PORT / HOST")
     log(" 停止     : 按 Ctrl+C")

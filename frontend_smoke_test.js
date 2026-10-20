@@ -5,7 +5,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const PAGES = ["index.html", "gomoku.html", "xiangqi.html", "paodekuai.html"];
+const PAGES = ["index.html", "gomoku.html", "xiangqi.html", "paodekuai.html", "hearts.html"];
 
 function makeCtx() {
   const grad = { addColorStop: function () {} };

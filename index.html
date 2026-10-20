@@ -131,13 +131,23 @@
       <p>2 人牌局 · 52 张随机移 12 张 · 每人 20 张 · 先出完手牌获胜（防记牌）</p>
       <span class="go">选择此玩法 →</span>
     </div>
+    <div class="card" id="card-hearts" data-game="hearts">
+      <div class="icon">
+        <div class="pdk">
+          <span class="red">♥</span><span>♠</span><span class="red">Q</span>
+        </div>
+      </div>
+      <h2>红心大战</h2>
+      <p>2 人组队 vs 电脑 · 你与队友坐 N/S，E/W 电脑 · 换牌 · 收墩 · 全收</p>
+      <span class="go">选择此玩法 →</span>
+    </div>
   </div>
 </div>
 <script>
 "use strict";
 
-const GAME_NAMES = { gomoku: "五子棋", xiangqi: "中国象棋", paodekuai: "跑得快" };
-const GAME_NEEDS = { gomoku: 2, xiangqi: 2, paodekuai: 2 };
+const GAME_NAMES = { gomoku: "五子棋", xiangqi: "中国象棋", paodekuai: "跑得快", hearts: "红心大战" };
+const GAME_NEEDS = { gomoku: 2, xiangqi: 2, paodekuai: 2, hearts: 2 };
 
 const connEl = document.getElementById("conn");
 const onlineEl = document.getElementById("online");
@@ -145,7 +155,11 @@ const noticeEl = document.getElementById("notice");
 const cardGomoku = document.getElementById("card-gomoku");
 const cardXiangqi = document.getElementById("card-xiangqi");
 const cardPaodekuai = document.getElementById("card-paodekuai");
-const allCards = { gomoku: cardGomoku, xiangqi: cardXiangqi, paodekuai: cardPaodekuai };
+const cardHearts = document.getElementById("card-hearts");
+const allCards = {
+  gomoku: cardGomoku, xiangqi: cardXiangqi,
+  paodekuai: cardPaodekuai, hearts: cardHearts
+};
 
 let state = { you: 0, connected: 0, selections: { "1": null, "2": null, "3": null } };
 let ws = null;
@@ -207,6 +221,7 @@ function selectGame(game) {
 cardGomoku.addEventListener("click", () => selectGame("gomoku"));
 cardXiangqi.addEventListener("click", () => selectGame("xiangqi"));
 cardPaodekuai.addEventListener("click", () => selectGame("paodekuai"));
+cardHearts.addEventListener("click", () => selectGame("hearts"));
 
 function wsUrl() {
   const scheme = location.protocol === "https:" ? "wss" : "ws";

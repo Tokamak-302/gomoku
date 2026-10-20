@@ -166,11 +166,12 @@ def test_http_page():
     with urllib.request.urlopen(BASE_URL, timeout=TIMEOUT) as resp:
         html = resp.read().decode("utf-8")
         assert resp.status == 200, "HTTP 状态码异常: %r" % resp.status
-    assert "五子棋" in html and "象棋" in html and "跑得快" in html, "开始界面应包含三种玩法入口"
-    for page in ("gomoku.html", "xiangqi.html", "paodekuai.html"):
+    assert "五子棋" in html and "象棋" in html and "跑得快" in html and "红心大战" in html, \
+        "开始界面应包含四种玩法入口"
+    for page in ("gomoku.html", "xiangqi.html", "paodekuai.html", "hearts.html"):
         with urllib.request.urlopen(BASE_URL + page, timeout=TIMEOUT) as resp:
             assert resp.status == 200, "页面 %s 不可访问" % page
-    print("[1/9] 开始界面与三个游戏页     PASS")
+    print("[1/10] 开始界面与四个游戏页     PASS")
 
 
 def test_join_and_colors():
@@ -191,14 +192,14 @@ def test_join_and_colors():
     assert st1["players"] == {"black": True, "white": True}
     assert st2["you"] == 2 and st1["you"] == 1
     assert sum(sum(row) for row in st1["board"]) == 0, "开局棋盘应为空"
-    print("[2/9] 双客户端连接、黑白分配    PASS")
+    print("[2/10] 双客户端连接、黑白分配    PASS")
     return p1, p2
 
 
 def test_out_of_turn(p2):
     p2.send({"type": "move", "row": 7, "col": 7})  # 白棋抢先落子
     expect_error(p2, "轮")
-    print("[3/9] 非本回合落子被拒绝        PASS")
+    print("[3/10] 非本回合落子被拒绝        PASS")
 
 
 def test_win(p1, p2):
@@ -227,7 +228,7 @@ def test_win(p1, p2):
     cells = {(r, c) for r, c in s1["line"]}
     for i in range(5):
         assert (0, i) in cells, "获胜连线缺少 (0, %d)" % i
-    print("[4/9] 五连胜利判定与连线        PASS")
+    print("[4/10] 五连胜利判定与连线        PASS")
 
 
 def test_undo(p1, p2):
@@ -261,7 +262,7 @@ def test_undo(p1, p2):
     expect(p2, "state")
     assert s1["over"] is True and s1["winner"] == 1, "重新落子后应再次判定黑棋获胜"
     assert s1["undoGhost"] is None, "落子后虚影应清除"
-    print("[5/9] 悔棋（仅限自己的棋）与虚影   PASS")
+    print("[5/10] 悔棋（仅限自己的棋）与虚影   PASS")
 
 
 def test_restart(p1, p2):
@@ -291,7 +292,7 @@ def test_restart(p1, p2):
         assert s["over"] is False and s["current"] == 1 and s["lastMove"] is None
         assert s["restartVotes"] == {"black": False, "white": False}
     assert s1["you"] == 2 and s2["you"] == 1, "重开后黑白应交换"
-    print("[6/9] 双方确认后重开与换边      PASS")
+    print("[6/10] 双方确认后重开与换边      PASS")
 
 
 def test_xiangqi():
@@ -361,7 +362,7 @@ def test_xiangqi():
         assert s["turn"] == 1
     q1.close()
     q2.close()
-    print("[7/9] 象棋联机协议与换边        PASS")
+    print("[7/10] 象棋联机协议与换边        PASS")
 
 
 def test_lobby():
@@ -423,7 +424,7 @@ def test_lobby():
     m1.close()
     m2.close()
 
-    print("[8/9] 大厅选玩法与开局流程      PASS")
+    print("[8/10] 大厅选玩法与开局流程      PASS")
 
 
 def read_states(clients, colors=(1, 2, 3)):
@@ -481,13 +482,90 @@ def test_paodekuai():
 
     k1.close()
     k2.close()
-    print("[9/9] 跑得快联机与出牌流程      PASS")
+    print("[9/10] 跑得快联机与出牌流程      PASS")
+
+
+def read_pair(a, b):
+    return expect(a, "state"), expect(b, "state")
+
+
+def test_hearts():
+    h1 = WSClient()
+    h1.send({"type": "join", "game": "hearts"})
+    hello1 = expect(h1, "hello")
+    assert hello1["color"] == 1 and hello1["game"] == "hearts", hello1
+    s1 = expect(h1, "state")
+    assert s1["phase"] == "idle", s1["phase"]
+
+    h2 = WSClient()
+    h2.send({"type": "join", "game": "hearts"})
+    hello2 = expect(h2, "hello")
+    assert hello2["color"] == 2, hello2
+    s2 = expect(h2, "state")
+    s1 = expect(h1, "state")
+    assert s1["phase"] == "pass" and s2["phase"] == "pass", (s1["phase"], s2["phase"])
+    assert s1["you"] == 0 and s2["you"] == 2, (s1["you"], s2["you"])
+    assert len(s1["hand"]) == 13 and len(s2["hand"]) == 13
+    assert s1["handNumber"] == 1 and s1["passDirection"] == "left"
+
+    # 换牌阶段：双方各换 3 张
+    h1.send({"type": "pass", "cards": s1["hand"][:3]})
+    s1, s2 = read_pair(h1, h2)
+    assert s1["passReady"][str(s1["you"])] is True, s1["passReady"]
+    h2.send({"type": "pass", "cards": s2["hand"][:3]})
+
+    # 换牌完成进入出牌阶段；电脑自动出牌，按状态逐个推进
+    st1 = st2 = None
+    for _ in range(300):
+        st1, st2 = read_pair(h1, h2)
+        if st1["over"] or st1["handNumber"] >= 2:
+            break
+        if st1["phase"] == "play" and st1["turn"] in (0, 2):
+            break
+    assert st1 is not None and st1["phase"] == "play", st1 and st1["phase"]
+    assert st1["turn"] in (0, 2)
+
+    # 非当前玩家出牌 → 被拒绝
+    wrong_color = 0 if st1["turn"] == 2 else 2
+    wrong_client = h1 if wrong_color == 0 else h2
+    wrong_state = st1 if wrong_color == 0 else st2
+    wrong_card = wrong_state["legal"][0] if wrong_state["legal"] else wrong_state["hand"][0]
+    wrong_client.send({"type": "play", "card": wrong_card})
+    expect_error(wrong_client, "轮")
+
+    # 打完这一手：人类按合法牌出牌，电脑由服务端自动接管
+    guard = 0
+    while guard < 400:
+        guard += 1
+        if st1["over"] or st1["handNumber"] >= 2:
+            break
+        if st1["phase"] == "play":
+            if st1["turn"] == 0 and st1["legal"]:
+                h1.send({"type": "play", "card": st1["legal"][0]})
+            elif st1["turn"] == 2 and st2["legal"]:
+                h2.send({"type": "play", "card": st2["legal"][0]})
+        for _ in range(80):
+            st1, st2 = read_pair(h1, h2)
+            if st1["over"] or st1["handNumber"] >= 2:
+                break
+            if st1["phase"] == "play" and st1["turn"] in (0, 2):
+                break
+    assert st1["handNumber"] >= 2 or st1["over"], "一手牌应该结束"
+    if not st1["over"]:
+        assert st1["phase"] == "pass", st1["phase"]
+        assert st1["lastHandScores"] is not None, st1["lastHandScores"]
+        total = st1["lastHandScores"]["NS"] + st1["lastHandScores"]["EW"]
+        assert total == 26, st1["lastHandScores"]
+
+    h1.close()
+    h2.close()
+    print("[10/10] 红心大战联机与 AI 流程    PASS")
 
 
 def main():
     global HOST, PORT, TIMEOUT, TLS, BASE_URL
     _fix_stdout()
-    parser = argparse.ArgumentParser(description="棋类对战联机自测（五子棋 + 中国象棋 + 跑得快）")
+    parser = argparse.ArgumentParser(description="棋类对战联机自测（五子棋 + 中国象棋 + 跑得快 + 红心大战）")
     parser.add_argument("--url", help="线上地址，如 https://gomoku.onrender.com；省略则测本机")
     args = parser.parse_args()
 
@@ -517,6 +595,7 @@ def main():
         test_xiangqi()
         test_lobby()
         test_paodekuai()
+        test_hearts()
     except AssertionError as exc:
         print("\n[FAIL] %s" % exc)
         return 1

@@ -1,8 +1,8 @@
-# 棋类对战 · 联机版（五子棋 + 中国象棋 + 跑得快，Python，零依赖）
+# 棋类对战 · 联机版（五子棋 + 中国象棋 + 跑得快 + 红心大战，Python，零依赖）
 
 单端口服务：同一个端口同时提供页面和 WebSocket 联机，后端只用 Python 标准库，
-**不需要安装任何第三方包**。打开开始界面选择「五子棋」「中国象棋」或「跑得快」，
-按玩法所需人数（2 人或 3 人）组局后自动进入对局。
+**不需要安装任何第三方包**。打开开始界面选择「五子棋」「中国象棋」「跑得快」或「红心大战」，
+两人组局后自动进入对局（红心大战为两名人类 N/S 组队 vs 两名电脑 E/W）。
 已适配 Render 免费层（自动读取平台注入的 `PORT`，监听 `0.0.0.0`）。
 
 ## 文件
@@ -16,11 +16,14 @@
 | `xiangqi.py` | 中国象棋规则与房间（走子/将军/将死判定，服务端权威） |
 | `paodekuai.html` | 跑得快对局页（手牌选牌、出牌/过牌、两家牌数、音效） |
 | `paodekuai.py` | 跑得快规则与房间（52 张随机移除 12 张、每人 20 张，服务端权威） |
+| `hearts.html` | 红心大战对局页（四人座位、换牌、收墩、比分、双人组队） |
+| `hearts.py` | 红心大战规则、电脑 AI 与房间（52 张、四人、组队计分，服务端权威） |
 | `assets/sounds/` | 落子 / 胜利音效（Kenney CC0）与自制的提示音（threat.wav、check.wav） |
 | `assets/threats.js` | 五子棋活三 / 冲四威胁检测（纯函数，前端与单测共用） |
-| `test_client.py` | 联机自测客户端（五子棋 + 象棋 + 跑得快），可测本机或线上地址 |
+| `test_client.py` | 联机自测客户端（五子棋 + 象棋 + 跑得快 + 红心大战），可测本机或线上地址 |
 | `xiangqi_rules_test.py` | 中国象棋规则单元测试（马腿、炮架、飞将、将死等） |
 | `paodekuai_rules_test.py` | 跑得快规则单元测试（牌型、比较、出牌/过牌、发牌、重开） |
+| `hearts_rules_test.py` | 红心大战规则 / AI / 房间单元测试（换牌、收墩、全收、组队计分） |
 | `requirements.txt` | 空依赖声明（供 Render 构建步骤使用） |
 | `render.yaml` | Render Blueprint 配置，可一键按此部署 |
 | `README.md` | 本说明 |
@@ -53,6 +56,9 @@ py -3 gomoku/xiangqi_rules_test.py
 # 跑得快规则单测（不需要服务器）
 py -3 gomoku/paodekuai_rules_test.py
 
+# 红心大战规则 / AI 单测（不需要服务器）
+py -3 gomoku/hearts_rules_test.py
+
 # 前端页面冒烟测试（用 DOM 桩执行各页脚本，捕获运行时错误）
 node gomoku/frontend_smoke_test.js
 
@@ -60,17 +66,17 @@ node gomoku/frontend_smoke_test.js
 node gomoku/xiangqi_interact_test.js
 ```
 
-联机自测覆盖：开始界面与三个游戏页可访问、五子棋黑白分配/非法落子/五连/悔棋虚影/双方确认重开、
+联机自测覆盖：开始界面与四个游戏页可访问、五子棋黑白分配/非法落子/五连/悔棋虚影/双方确认重开、
 中国象棋加入分色/合法走法查询/走子/悔棋仅限自己/双方确认重开换边、
 跑得快两人到齐发牌（每人 20 张、随机移除 12 张）/出牌与过牌流转/非当前玩家被拒/双方确认重新发牌、
-大厅选玩法与开局流程。
+红心大战换牌、出牌与电脑自动接管、非当前玩家被拒、整手结算、大厅选玩法与开局流程。
 
 ## 进入对局流程（大厅）
 
 1. 玩家打开窗口访问本站，开始界面显示「已连接玩家：n/3」；
-2. 一方选择玩法后，其他玩家界面提示「另一位玩家想玩五子棋 / 中国象棋 / 跑得快」（自己选择的卡片显示黄色实线框，对方选择的卡片显示黄色虚线框）；
+2. 一方选择玩法后，其他玩家界面提示「另一位玩家想玩五子棋 / 中国象棋 / 跑得快 / 红心大战」（自己选择的卡片显示黄色实线框，对方选择的卡片显示黄色虚线框）；
 3. 所有玩法均为 **2 人**：所需两名玩家都选择了同一种玩法后，自动进入对应游戏界面；选择不同则提示统一玩法；
-4. 游戏中点击「← 选择玩法」返回大厅后，仍在游戏中的玩家会看到「另一位玩家已离开五子棋 / 象棋 / 跑得快」。
+4. 游戏中点击「← 选择玩法」返回大厅后，仍在游戏中的玩家会看到「另一位玩家已离开五子棋 / 象棋 / 跑得快 / 红心大战」。
 
 ## 音效
 
@@ -86,6 +92,7 @@ node gomoku/xiangqi_interact_test.js
 两个 Kenney 素材包均为 **CC0 1.0（公有领域）**，可自由商用、无需署名；`threat.wav` 为本项目合成的原创音效。
 中国象棋使用落子音、胜利音与将军提示音（`check.wav`，无威胁提示）。
 跑得快使用落子音与胜利音。
+红心大战使用落子音与胜利音。
 
 > 版权说明：《星露谷》的「上钩了」音效属于游戏版权素材，不能直接提取并放入公开仓库/线上站点使用。
 > 若你想本地自用替换，可把获得授权的音频命名为 `threat.wav` 替换即可。
@@ -126,6 +133,19 @@ node gomoku/xiangqi_interact_test.js
 - 操作：点击手牌选牌（再点取消）→ 点「出牌」；选择「过牌」放弃本轮；双方确认后重新发牌；
 - 简化：不强制「有管必管」，不支持 4 带 X 与王炸（无王）。
 
+## 红心大战（四人 · 双人组队 vs 电脑）
+
+座位顺时针 N → E → S → W：**N / S 为两名人类玩家（队友，蓝队）**，**E / W 为电脑（红队）**。
+
+- 52 张牌，每人 13 张；换牌方向按手数循环：左 → 右 → 对家 → 不换（每手人类选 3 张，电脑 AI 自动选）；
+- 必须跟花色，没有该花色时可出任意牌；首墩必须领出 ♣2，且首墩不能出红心或黑桃 Q；
+- 红心未「破」前不能主动领出红心（跟牌时可以出，即破）；
+- 红心每张 1 分、黑桃 Q 13 分，一手共 26 分；一家收齐 26 分「全收」：该家所在队本手 0 分、另一队 +26；
+- **按队累计得分**（N+S 一队、E+W 一队），先到 100 分结束，分低的一队获胜；
+- 电脑 AI：换牌优先换走黑桃 Q 与大牌；出牌尽量不赢带分墩、缺门时把危险牌垫给对手、
+  领出优先短花色小牌；整体与 Windows 自带红心大战 AI 相当或略强；
+- 操作：换牌阶段选 3 张点「换牌」；出牌阶段点击高亮（可出）的牌再点「出牌」；对局结束后双方确认可再来一局。
+
 ## 联机协议
 
 WebSocket 建立后，客户端需先发送「加入游戏」消息，再发送对局消息：
@@ -135,6 +155,7 @@ WebSocket 建立后，客户端需先发送「加入游戏」消息，再发送�
 { "type": "join", "game": "gomoku" }
 { "type": "join", "game": "xiangqi" }
 { "type": "join", "game": "paodekuai" }
+{ "type": "join", "game": "hearts" }
 ```
 
 **大厅（开始界面）**：
@@ -143,6 +164,7 @@ WebSocket 建立后，客户端需先发送「加入游戏」消息，再发送�
 { "type": "select", "game": "gomoku" }
 { "type": "select", "game": "xiangqi" }
 { "type": "select", "game": "paodekuai" }
+{ "type": "select", "game": "hearts" }
 ```
 
 `select` 再次发送相同玩法 = 取消选择。服务端 → 客户端：`lobby_state`（`connected` 人数、`needs` 各玩法所需人数、`selections` 选择、`players` 是否在线）、
@@ -178,9 +200,20 @@ WebSocket 建立后，客户端需先发送「加入游戏」消息，再发送�
 
 牌编码：`r` 3..15（14=A，15=2），`s` 0=♠ 1=♥ 2=♣ 3=♦。
 
+**红心大战**：
+
+```json
+{ "type": "pass", "cards": [{"r": 2, "s": 0}, {"r": 12, "s": 3}, {"r": 14, "s": 1}] }
+{ "type": "play", "card": {"r": 5, "s": 2} }
+{ "type": "restart" }
+{ "type": "ping" }
+```
+
+牌编码：`r` 2..14（11=J，12=Q，13=K，14=A），`s` 0=♣ 1=♦ 2=♥ 3=♠。
+
 服务端 → 客户端：
 
-- `hello`：`{ "type": "hello", "color": 1|2|3|0, "game": "gomoku"|"xiangqi"|"paodekuai" }`
+- `hello`：`{ "type": "hello", "color": 1|2|3|0, "game": "gomoku"|"xiangqi"|"paodekuai"|"hearts" }`
 - `state`：完整状态快照
   - 五子棋字段：`board`（15×15 数字）、`current`、`over`、`winner`、`line`、`lastMove`、`you`、
     `players`（black/white）、`connected`、`restartVotes`、`undoGhost`、`canUndo`
@@ -188,6 +221,10 @@ WebSocket 建立后，客户端需先发送「加入游戏」消息，再发送�
     `you`、`players`（red/black）、`connected`、`restartVotes`、`canUndo`
   - 跑得快字段：`hand`（自己的手牌）、`counts`（两家牌数）、`turn`、`lastPlay`（`{cards,by,combo}` 或 null）、`started`、
     `over`、`winner`（1/2，0 为中断）、`removedCount`（本局随机移除张数）、`you`、`players`、`connected`、`restartVotes`
+  - 红心大战字段：`you`（座位 0=N/2=S，观众为 null）、`phase`（idle/pass/play/over）、`hand`（自己手牌）、`counts`（四家张数）、
+    `trick`（本墩 `{seat,card}` 列表）、`turn`、`legal`（轮到自己的可出牌）、`heartsBroken`、`firstTrick`、
+    `passDirection`（left/right/across/keep）、`passReady`、`scores`（NS/EW）、`handPoints`、`lastHandScores`、
+    `over`、`winner`（NS/EW）、`players`（N/S 是否在线）、`connected`、`restartVotes`
 - `legal`（仅象棋，仅发给请求者）：`{ "type": "legal", "from": [r,c], "moves": [[r,c], ...], "captures": {"r,c": "敌方棋子编码"}, "captureBy": {"r,c": [[er,ec], ...]} }`；
   `captures` 标出可吃子的目标位置，`captureBy` 表示走子到该位置后、下一步可能反吃的敌方棋子
 - `undo`：撤销事件（`color` 为被撤销的一方；五子棋附带 `row`/`col`，象棋附带 `from`/`to`）
