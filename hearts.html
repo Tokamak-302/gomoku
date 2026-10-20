@@ -146,10 +146,7 @@
     <div class="info-row">
       <div class="status" id="status">正在连接服务器…</div>
       <div class="badge" id="hearts-badge">红心未破</div>
-      <div class="scores">
-        <span>蓝队 N/S <b class="team-ns-text" id="score-ns">0</b></span>
-        <span>红队 E/W <b class="team-ew-text" id="score-ew">0</b></span>
-      </div>
+      <div class="scores" id="scores"></div>
       <button id="restart" class="secondary" disabled>重新开始（双方确认）</button>
     </div>
   </section>
@@ -172,12 +169,14 @@ const connEl = document.getElementById("conn");
 const statusEl = document.getElementById("status");
 const handEl = document.getElementById("hand");
 const badgeEl = document.getElementById("hearts-badge");
-const scoreNsEl = document.getElementById("score-ns");
-const scoreEwEl = document.getElementById("score-ew");
+const scoresEl = document.getElementById("scores");
 const mySeatEl = document.getElementById("my-seat");
 const passBtn = document.getElementById("pass");
 const playBtn = document.getElementById("play");
 const restartBtn = document.getElementById("restart");
+const GAME_ID = (new URLSearchParams(location.search).get("solo") === "1")
+  ? "hearts_solo"
+  : "hearts";
 
 const trickEls = {
   top: document.getElementById("trick-top"),
@@ -193,7 +192,7 @@ const winSound = new Audio("assets/sounds/win.ogg?v=2");
 winSound.preload = "auto";
 
 let state = {
-  you: null, seatName: null, phase: "idle", handNumber: 0, passDirection: "left",
+  mode: "duo", you: null, seatName: null, phase: "idle", handNumber: 0, passDirection: "left",
   passReady: { "0": false, "1": false, "2": false, "3": false },
   hand: [], counts: { "0": 0, "1": 0, "2": 0, "3": 0 },
   trick: [], legal: [], turn: 0, heartsBroken: false, firstTrick: true,
@@ -236,7 +235,8 @@ function seatLabel(seat) {
 
 function roleText(seat) {
   if (state.you === seat) return "你";
-  if (state.you !== null && SEAT_NAME_CN[seat] && Math.abs(seat - state.you) === 2) {
+  if (state.mode === "solo") return "电脑";
+  if (state.you !== null && Math.abs(seat - state.you) === 2) {
     return "队友（玩家）";
   }
   if (seat === 1 || seat === 3) return "电脑";
@@ -268,10 +268,15 @@ function updateSeats() {
 
 function fillSeat(elId, seat) {
   const el = document.getElementById(elId);
-  el.className = "seat " + (elId === "seat-top" ? "seat-top" :
-    elId === "seat-left" ? "seat-left" : "seat-right") +
-    (TEAM_OF_SEAT[seat] === 0 ? " team-ns" : " team-ew") +
-    (state.phase === "play" && state.turn === seat && !state.over ? " active" : "");
+  let cls = "seat " + (elId === "seat-top" ? "seat-top" :
+    elId === "seat-left" ? "seat-left" : "seat-right");
+  if (state.mode === "duo") {
+    cls += TEAM_OF_SEAT[seat] === 0 ? " team-ns" : " team-ew";
+  } else if (state.you === seat) {
+    cls += " me";
+  }
+  if (state.phase === "play" && state.turn === seat && !state.over) cls += " active";
+  el.className = cls;
   el.innerHTML = "";
   const name = document.createElement("div");
   name.className = "name";
@@ -369,20 +374,40 @@ function showTrickEmpty() {
     : (state.phase === "pass" ? "换牌阶段" : "等待发牌…");
 }
 
+function renderScores() {
+  const s = state;
+  if (s.mode === "solo") {
+    const names = ["N", "E", "S", "W"];
+    scoresEl.innerHTML = names.map(function (name) {
+      const isMe = s.seatName === name;
+      return '<span class="' + (isMe ? "team-ns-text" : "") + '">' +
+        name + (isMe ? "（你）" : "") + ' <b>' + (s.scores[name] || 0) + "</b></span>";
+    }).join(" ");
+  } else {
+    scoresEl.innerHTML =
+      '<span>蓝队 N/S <b class="team-ns-text">' + (s.scores.NS || 0) + "</b></span>" +
+      '<span>红队 E/W <b class="team-ew-text">' + (s.scores.EW || 0) + "</b></span>";
+  }
+}
+
 function updateUI() {
   const s = state;
   updateSeats();
   renderHand();
   renderTrick();
+  renderScores();
 
-  scoreNsEl.textContent = s.scores.NS;
-  scoreEwEl.textContent = s.scores.EW;
-  badgeEl.textContent = s.heartsBroken ? "红心已破" : "红心未破";
+  const modeEl = document.querySelector("h1 small");
+  if (modeEl) {
+    modeEl.textContent = s.mode === "solo" ? "单人 vs 3 电脑" : "双人组队 vs 电脑";
+  }  badgeEl.textContent = s.heartsBroken ? "红心已破" : "红心未破";
   badgeEl.className = "badge" + (s.heartsBroken ? " broken" : "");
 
   const myKey = s.you === 0 ? "1" : (s.you === 2 ? "2" : "");
   const partnerSeat = s.you === null ? null : (s.you + 2) % 4;
-  const partnerColor = partnerSeat === 0 ? "1" : (partnerSeat === 2 ? "2" : "");
+  const partnerColor = (s.mode === "duo")
+    ? (partnerSeat === 0 ? "1" : (partnerSeat === 2 ? "2" : ""))
+    : "";
   const votes = s.restartVotes || {};
   const myVote = myKey && votes[myKey];
   const oppVote = partnerColor && votes[partnerColor];
@@ -395,40 +420,59 @@ function updateUI() {
 
   let text;
   if (s.phase === "idle") {
-    text = "等待两名玩家加入（" + (s.connected || 0) + "/2）…";
+    text = s.mode === "solo"
+      ? "正在准备牌局…"
+      : ("等待两名玩家加入（" + (s.connected || 0) + "/2）…");
   } else if (s.over) {
-    if (s.winner === null) text = "对局结束：平局。";
-    else text = "对局结束：" + teamName(s.winner) + " 获胜！";
+    if (s.winner === null) {
+      text = "对局结束：平局。";
+    } else if (s.mode === "solo") {
+      text = "对局结束：" + s.winner + " 座获胜" +
+        (s.winner === s.seatName ? "（你赢了！）" : "");
+    } else {
+      text = "对局结束：" + teamName(s.winner) + " 获胜！";
+    }
   } else if (s.phase === "pass") {
     const dirText = { left: "向左家", right: "向右家", across: "与对家", keep: "不换牌" }[s.passDirection] || "";
     const readyMe = s.passReady[String(s.you)];
-    if (readyMe) text = "已选择换牌，等待队友确认…";
-    else text = "换牌阶段（" + dirText + "换 3 张）：选中 3 张后点「换牌」。";
+    if (readyMe) {
+      text = s.mode === "solo" ? "已选择换牌…" : "已选择换牌，等待队友确认…";
+    } else {
+      text = "换牌阶段（" + dirText + "换 3 张）：选中 3 张后点「换牌」。";
+    }
   } else if (myTurn) {
     text = s.firstTrick
       ? "轮到你出牌：首墩必须出 ♣2（领出），且本墩不能出红心/黑桃Q。"
       : "轮到你出牌。";
   } else {
-    const turnName = SEAT_NAMES[s.turn] || "?";
-    text = "等待 " + turnName + " 座（" + (s.turn === 1 || s.turn === 3 ? "电脑" : "玩家") + "）出牌…";
+    const isAi = (s.mode === "solo") ? (s.turn !== 0) : (s.turn === 1 || s.turn === 3);
+    text = "等待 " + (SEAT_NAMES[s.turn] || "?") + " 座（" + (isAi ? "电脑" : "玩家") + "）出牌…";
   }
   if (s.lastHandScores) {
     const m = s.lastHandScores;
-    text += " 上一手：蓝队 +" + m.NS + "，红队 +" + m.EW +
-      (m.moon ? "（" + m.moon + " 全收）" : "");
+    if (s.mode === "solo") {
+      text += " 上一手：";
+      for (const name of ["N", "E", "S", "W"]) {
+        text += name + " +" + (m[name] || 0) + " ";
+      }
+      if (m.moon) text += "（" + m.moon + " 全收）";
+    } else {
+      text += " 上一手：蓝队 +" + m.NS + "，红队 +" + m.EW +
+        (m.moon ? "（" + m.moon + " 全收）" : "");
+    }
   }
   statusEl.textContent = text;
   statusEl.classList.toggle("bad", s.over);
 
   if (s.over) {
-    restartBtn.textContent = "再来一局（双方确认）";
+    restartBtn.textContent = s.mode === "solo" ? "再来一局" : "再来一局（双方确认）";
   } else if (myVote) {
-    restartBtn.textContent = "等待队友确认（点击取消）";
+    restartBtn.textContent = s.mode === "solo" ? "重新开始中…" : "等待队友确认（点击取消）";
   } else if (oppVote) {
     restartBtn.textContent = "队友想重新开始，点击同意";
     restartBtn.classList.add("highlight");
   } else {
-    restartBtn.textContent = "重新开始（双方确认）";
+    restartBtn.textContent = s.mode === "solo" ? "重新开始" : "重新开始（双方确认）";
     restartBtn.classList.remove("highlight");
   }
 }
@@ -470,7 +514,7 @@ function connect() {
     prevTrickKey = "";
     prevOver = false;
     setConn("已连接", "ok");
-    ws.send(JSON.stringify({ type: "join", game: "hearts" }));
+    ws.send(JSON.stringify({ type: "join", game: GAME_ID }));
   };
   ws.onmessage = (evt) => {
     let msg;
@@ -479,8 +523,11 @@ function connect() {
       const trickKey = JSON.stringify(msg.trick || []);
       if (!firstState) {
         if (trickKey !== prevTrickKey) playSound(placeSound);
-        if (msg.over && !prevOver && msg.winner !== null && msg.winner === myTeamOf(msg)) {
-          playSound(winSound, 250);
+        if (msg.over && !prevOver && msg.winner !== null) {
+          const myWin = msg.mode === "solo"
+            ? (msg.winner === SEAT_NAMES[msg.you])
+            : (msg.winner === myTeamOf(msg));
+          if (myWin) playSound(winSound, 250);
         }
       }
       prevTrickKey = trickKey;

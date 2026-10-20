@@ -202,6 +202,61 @@ chosen = ai_choose_pass(hand)
 check("AI passes 3 cards", len(chosen) == 3 and all(c in hand for c in chosen))
 check("AI passes queen of spades", C(12, 3) in chosen, chosen)
 
+# 8. 单人模式：一名人类 + 三台电脑，个人计分
+solo = HeartsRoom(mode="solo", delay=0)
+ms = MockConn(1)
+solo.clients = []
+solo.players = {1: ms}
+solo.on_join()
+check("solo starts on single join", solo.phase == "pass" and solo.hand_number == 1, solo.phase)
+check("solo human seat N", solo.human_seats == (0,))
+check("solo AI seats E/S/W", solo.ai_seats == (1, 2, 3))
+check("solo 3 AI pass-ready", all(solo.pass_ready[s] for s in (1, 2, 3)))
+check("solo human hand 13", len(solo.hands[0]) == 13)
+
+solo.handle_pass(ms, {"cards": solo.hands[0][:3]})
+check("solo play phase after human pass", solo.phase == "play", solo.phase)
+guard = 0
+while solo.phase == "play" and guard < 300:
+    guard += 1
+    seat = solo.turn
+    card = ai_choose_play(solo, seat)
+    if card is None:
+        break
+    solo._play_card(seat, card)
+check("solo hand finished", solo.hand_number >= 2 or solo.over, solo.phase)
+check("solo last hand per-seat", solo.last_hand_scores is not None and "N" in solo.last_hand_scores,
+      solo.last_hand_scores)
+if solo.last_hand_scores:
+    total = sum(solo.last_hand_scores[n] for n in ("N", "E", "S", "W"))
+    check("solo hand total 26", total == 26, solo.last_hand_scores)
+
+# 9. 单人模式计分：全收个人计分 / 结束判定
+r5 = HeartsRoom(mode="solo", delay=0)
+r5.clients = []
+r5.players = {1: MockConn(1)}
+r5.hand_points = [0, 0, 0, 26]  # W 全收
+r5.scores = {"N": 10, "E": 20, "S": 30, "W": 40}
+r5._end_hand()
+check("solo moon scoring", r5.scores == {"N": 36, "E": 46, "S": 56, "W": 40}, r5.scores)
+
+r6 = HeartsRoom(mode="solo", delay=0)
+r6.clients = []
+r6.players = {1: MockConn(1)}
+r6.hand_points = [5, 0, 0, 0]
+r6.scores = {"N": 95, "E": 80, "S": 60, "W": 50}
+r6._end_hand()
+check("solo game over", r6.over and r6.winner == "W", (r6.scores, r6.winner))
+
+# 10. 单人模式重新开始（单名玩家确认即可）
+r7 = HeartsRoom(mode="solo", delay=0)
+r7.clients = []
+r7.players = {1: MockConn(1)}
+r7.start_game()
+r7.handle_restart(MockConn(1))
+check("solo restart resets", r7.scores == {"N": 0, "E": 0, "S": 0, "W": 0} and r7.hand_number == 1,
+      (r7.scores, r7.hand_number))
+
 print("-" * 32)
 print("%d passed, %d failed" % (passed, failed))
 sys.exit(1 if failed else 0)

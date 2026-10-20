@@ -171,7 +171,7 @@ def test_http_page():
     for page in ("gomoku.html", "xiangqi.html", "paodekuai.html", "hearts.html"):
         with urllib.request.urlopen(BASE_URL + page, timeout=TIMEOUT) as resp:
             assert resp.status == 200, "页面 %s 不可访问" % page
-    print("[1/10] 开始界面与四个游戏页     PASS")
+    print("[1/11] 开始界面与四个游戏页     PASS")
 
 
 def test_join_and_colors():
@@ -192,14 +192,14 @@ def test_join_and_colors():
     assert st1["players"] == {"black": True, "white": True}
     assert st2["you"] == 2 and st1["you"] == 1
     assert sum(sum(row) for row in st1["board"]) == 0, "开局棋盘应为空"
-    print("[2/10] 双客户端连接、黑白分配    PASS")
+    print("[2/11] 双客户端连接、黑白分配    PASS")
     return p1, p2
 
 
 def test_out_of_turn(p2):
     p2.send({"type": "move", "row": 7, "col": 7})  # 白棋抢先落子
     expect_error(p2, "轮")
-    print("[3/10] 非本回合落子被拒绝        PASS")
+    print("[3/11] 非本回合落子被拒绝        PASS")
 
 
 def test_win(p1, p2):
@@ -228,7 +228,7 @@ def test_win(p1, p2):
     cells = {(r, c) for r, c in s1["line"]}
     for i in range(5):
         assert (0, i) in cells, "获胜连线缺少 (0, %d)" % i
-    print("[4/10] 五连胜利判定与连线        PASS")
+    print("[4/11] 五连胜利判定与连线        PASS")
 
 
 def test_undo(p1, p2):
@@ -262,7 +262,7 @@ def test_undo(p1, p2):
     expect(p2, "state")
     assert s1["over"] is True and s1["winner"] == 1, "重新落子后应再次判定黑棋获胜"
     assert s1["undoGhost"] is None, "落子后虚影应清除"
-    print("[5/10] 悔棋（仅限自己的棋）与虚影   PASS")
+    print("[5/11] 悔棋（仅限自己的棋）与虚影   PASS")
 
 
 def test_restart(p1, p2):
@@ -292,7 +292,7 @@ def test_restart(p1, p2):
         assert s["over"] is False and s["current"] == 1 and s["lastMove"] is None
         assert s["restartVotes"] == {"black": False, "white": False}
     assert s1["you"] == 2 and s2["you"] == 1, "重开后黑白应交换"
-    print("[6/10] 双方确认后重开与换边      PASS")
+    print("[6/11] 双方确认后重开与换边      PASS")
 
 
 def test_xiangqi():
@@ -362,7 +362,7 @@ def test_xiangqi():
         assert s["turn"] == 1
     q1.close()
     q2.close()
-    print("[7/10] 象棋联机协议与换边        PASS")
+    print("[7/11] 象棋联机协议与换边        PASS")
 
 
 def test_lobby():
@@ -424,7 +424,7 @@ def test_lobby():
     m1.close()
     m2.close()
 
-    print("[8/10] 大厅选玩法与开局流程      PASS")
+    print("[8/11] 大厅选玩法与开局流程      PASS")
 
 
 def read_states(clients, colors=(1, 2, 3)):
@@ -482,7 +482,7 @@ def test_paodekuai():
 
     k1.close()
     k2.close()
-    print("[9/10] 跑得快联机与出牌流程      PASS")
+    print("[9/11] 跑得快联机与出牌流程      PASS")
 
 
 def read_pair(a, b):
@@ -559,13 +559,51 @@ def test_hearts():
 
     h1.close()
     h2.close()
-    print("[10/10] 红心大战联机与 AI 流程    PASS")
+    print("[10/11] 红心大战联机与 AI 流程    PASS")
+
+
+def test_hearts_solo():
+    # 大厅：单人玩法选中即开局
+    c = WSClient()
+    c.send({"type": "join", "game": "lobby"})
+    expect(c, "hello")
+    expect(c, "lobby_state")
+    c.send({"type": "select", "game": "hearts_solo"})
+    expect(c, "lobby_state")
+    start = expect(c, "start")
+    assert start["game"] == "hearts_solo", start
+    c.close()
+    time.sleep(0.4)
+
+    h = WSClient()
+    h.send({"type": "join", "game": "hearts_solo"})
+    hello = expect(h, "hello")
+    assert hello["color"] == 1 and hello["game"] == "hearts_solo", hello
+    s = expect(h, "state")
+    assert s["mode"] == "solo", s["mode"]
+    assert s["phase"] == "pass" and len(s["hand"]) == 13, (s["phase"], len(s["hand"]))
+    assert s["you"] == 0, s["you"]
+
+    h.send({"type": "pass", "cards": s["hand"][:3]})
+    for _ in range(80):
+        s = expect(h, "state")
+        if s["phase"] == "play" and s["turn"] == 0:
+            break
+    assert s["phase"] == "play" and s["turn"] == 0, (s["phase"], s["turn"])
+    h.send({"type": "play", "card": s["legal"][0]})
+    for _ in range(120):
+        s = expect(h, "state")
+        if s["over"] or s["phase"] != "play" or s["turn"] == 0:
+            break
+    assert s["phase"] != "idle"
+    h.close()
+    print("[11/11] 单人红心大战与 AI 流程    PASS")
 
 
 def main():
     global HOST, PORT, TIMEOUT, TLS, BASE_URL
     _fix_stdout()
-    parser = argparse.ArgumentParser(description="棋类对战联机自测（五子棋 + 中国象棋 + 跑得快 + 红心大战）")
+    parser = argparse.ArgumentParser(description="棋类对战联机自测（五子棋 + 中国象棋 + 跑得快 + 红心大战 + 单人红心）")
     parser.add_argument("--url", help="线上地址，如 https://gomoku.onrender.com；省略则测本机")
     args = parser.parse_args()
 
@@ -596,6 +634,7 @@ def main():
         test_lobby()
         test_paodekuai()
         test_hearts()
+        test_hearts_solo()
     except AssertionError as exc:
         print("\n[FAIL] %s" % exc)
         return 1

@@ -167,11 +167,11 @@ class Room:
         }
 
 
-GAME_NEEDS = {"gomoku": 2, "xiangqi": 2, "paodekuai": 2, "hearts": 2}
+GAME_NEEDS = {"gomoku": 2, "xiangqi": 2, "paodekuai": 2, "hearts": 2, "hearts_solo": 1}
 
 
 class LobbyRoom:
-    """选择玩法界面的大厅：最多三名玩家，按玩法所需人数（2 或 3 人）组局。"""
+    """选择玩法界面的大厅：最多三名玩家，按玩法所需人数（1/2 人）组局。"""
 
     def __init__(self):
         self.lock = threading.RLock()
@@ -202,7 +202,7 @@ class LobbyRoom:
         if conn.color not in (1, 2, 3):
             conn.send({"type": "error", "message": "观众不能选择玩法"})
             return
-        if game not in (None, "gomoku", "xiangqi", "paodekuai", "hearts"):
+        if game not in (None, "gomoku", "xiangqi", "paodekuai", "hearts", "hearts_solo"):
             conn.send({"type": "error", "message": "未知玩法: %s" % game})
             return
         if game is not None and self.selections[conn.color] == game:
@@ -212,6 +212,26 @@ class LobbyRoom:
         broadcast_locked(self)
 
         for name, need in GAME_NEEDS.items():
+            if need == 1:
+                # 单人玩法：谁选中就立即开始
+                chosen = None
+                for slot in (1, 2, 3):
+                    if self.players[slot] is not None and self.selections[slot] == name:
+                        chosen = slot
+                        break
+                if chosen is not None:
+                    client = self.players[chosen]
+                    if client.alive:
+                        client.send({"type": "start", "game": name})
+                    for other in self.clients:
+                        if other.alive and other is not client:
+                            other.send({"type": "notice",
+                                         "message": "对局已开始（本轮你未参与）"})
+                    log(f"[大厅] {name} 开局（单人）")
+                    self.selections = {1: None, 2: None, 3: None}
+                    broadcast_locked(self)
+                    return
+                continue
             if (all(self.players[i] is not None for i in range(1, need + 1))
                     and all(self.selections[i] == name for i in range(1, need + 1))):
                 for i in range(1, need + 1):
@@ -233,6 +253,7 @@ ROOMS = {
     "xiangqi": XiangqiRoom(),
     "paodekuai": PaodekuaiRoom(),
     "hearts": HeartsRoom(),
+    "hearts_solo": HeartsRoom(mode="solo"),
     "lobby": LobbyRoom(),
 }
 
@@ -548,7 +569,7 @@ def handle_message(conn, text):
                 conn.send({"type": "pong"})
             else:
                 conn.send({"type": "error", "message": "未知消息类型: %s" % mtype})
-        elif conn.game == "hearts":
+        elif conn.game in ("hearts", "hearts_solo"):
             if mtype == "play":
                 room.handle_play(conn, msg)
             elif mtype == "pass":

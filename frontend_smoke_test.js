@@ -58,12 +58,14 @@ function runPage(page) {
       if (!elements[id]) elements[id] = makeEl("div#" + id);
       return elements[id];
     },
-    createElement: function (tag) { return makeEl(tag); }
+    createElement: function (tag) { return makeEl(tag); },
+    querySelector: function () { return makeEl("small"); }
   };
   const sandbox = {
     document: documentStub,
     window: { setTimeout: setTimeout, clearTimeout: clearTimeout, devicePixelRatio: 1 },
-    location: { protocol: "http:", host: "127.0.0.1:8000", hostname: "127.0.0.1", port: "8000" },
+    location: { protocol: "http:", host: "127.0.0.1:8000", hostname: "127.0.0.1", port: "8000", search: "" },
+    URLSearchParams: URLSearchParams,
     Audio: function () {
       return { preload: "", currentTime: 0, play: function () { return { catch: function () {} }; } };
     },

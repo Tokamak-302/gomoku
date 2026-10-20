@@ -141,13 +141,26 @@
       <p>2 人组队 vs 电脑 · 你与队友坐 N/S，E/W 电脑 · 换牌 · 收墩 · 全收</p>
       <span class="go">选择此玩法 →</span>
     </div>
+    <div class="card" id="card-hearts-solo" data-game="hearts_solo">
+      <div class="icon">
+        <div class="pdk">
+          <span class="red">♥</span><span>🤖</span><span class="red">Q</span>
+        </div>
+      </div>
+      <h2>红心大战 · 单人</h2>
+      <p>1 人 vs 3 电脑 · 个人计分 · 专门用来测试 AI 强度 · 换牌 · 收墩 · 全收</p>
+      <span class="go">选择此玩法 →</span>
+    </div>
   </div>
 </div>
 <script>
 "use strict";
 
-const GAME_NAMES = { gomoku: "五子棋", xiangqi: "中国象棋", paodekuai: "跑得快", hearts: "红心大战" };
-const GAME_NEEDS = { gomoku: 2, xiangqi: 2, paodekuai: 2, hearts: 2 };
+const GAME_NAMES = {
+  gomoku: "五子棋", xiangqi: "中国象棋", paodekuai: "跑得快",
+  hearts: "红心大战", hearts_solo: "红心大战（单人）"
+};
+const GAME_NEEDS = { gomoku: 2, xiangqi: 2, paodekuai: 2, hearts: 2, hearts_solo: 1 };
 
 const connEl = document.getElementById("conn");
 const onlineEl = document.getElementById("online");
@@ -156,9 +169,10 @@ const cardGomoku = document.getElementById("card-gomoku");
 const cardXiangqi = document.getElementById("card-xiangqi");
 const cardPaodekuai = document.getElementById("card-paodekuai");
 const cardHearts = document.getElementById("card-hearts");
+const cardHeartsSolo = document.getElementById("card-hearts-solo");
 const allCards = {
   gomoku: cardGomoku, xiangqi: cardXiangqi,
-  paodekuai: cardPaodekuai, hearts: cardHearts
+  paodekuai: cardPaodekuai, hearts: cardHearts, hearts_solo: cardHeartsSolo
 };
 
 let state = { you: 0, connected: 0, selections: { "1": null, "2": null, "3": null } };
@@ -222,6 +236,7 @@ cardGomoku.addEventListener("click", () => selectGame("gomoku"));
 cardXiangqi.addEventListener("click", () => selectGame("xiangqi"));
 cardPaodekuai.addEventListener("click", () => selectGame("paodekuai"));
 cardHearts.addEventListener("click", () => selectGame("hearts"));
+cardHeartsSolo.addEventListener("click", () => selectGame("hearts_solo"));
 
 function wsUrl() {
   const scheme = location.protocol === "https:" ? "wss" : "ws";
@@ -250,7 +265,9 @@ function connect() {
     } else if (msg.type === "start") {
       if (navigating) return;
       navigating = true;
-      location.href = msg.game + ".html";
+      location.href = (msg.game === "hearts_solo")
+        ? "hearts.html?solo=1"
+        : (msg.game + ".html");
     } else if (msg.type === "notice") {
       flashNotice(msg.message || "");
     } else if (msg.type === "error") {

@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""红心大战（四人，双人组队 vs 电脑）规则、AI 与联机房间（服务端权威）。
+"""红心大战（四人）规则、AI 与联机房间（服务端权威）。
 
-座位（顺时针）：N(0) → E(1) → S(2) → W(3)。
-- N / S 为人类玩家（颜色 1 / 2），E / W 为电脑；
-- 队伍：N+S 为「蓝队」，E+W 为「红队」；按队累计得分，先到 100 分结束，分低者胜；
-- 每手 13 张；换牌方向按局循环：左 → 右 → 对家 → 不换；
-- 红心每张 1 分，黑桃 Q 13 分；一家收齐 26 分「全收」：该家所在队本局 0 分，另一队 +26；
-- 首墩必须领出 ♣2，且首墩不能出红心或黑桃 Q；红心未「破」之前不能主动领出红心；
-- 必须跟花色，没有该花色时可出任意牌（受首墩限制）。
+座位（顺时针）：N(0) → E(1) → S(2) → W(3)。支持两种模式：
+- duo（双人组队）：N / S 为两名人类（颜色 1 / 2），E / W 为电脑；
+  N+S「蓝队」对 E+W「红队」，按队累计得分，先到 100 分结束，分低者胜；
+- solo（单人）：仅 N 为人类（颜色 1），E / S / W 为电脑；个人计分，先到 100 分结束，分最低者胜。
+
+规则：每手 13 张；换牌方向按局循环：左 → 右 → 对家 → 不换；
+红心每张 1 分，黑桃 Q 13 分；一家收齐 26 分「全收」：该家 0 分，其他人各 +26；
+首墩必须领出 ♣2，且首墩不能出红心或黑桃 Q；红心未「破」之前不能主动领出红心；
+必须跟花色，没有该花色时可出任意牌（受首墩限制）。
 
 卡牌表示 {"r": 2..14, "s": 0..3}：r 11=J 12=Q 13=K 14=A；s 0=♣ 1=♦ 2=♥ 3=♠。
 """
@@ -102,6 +104,13 @@ def ai_choose_pass(hand):
     return sorted(hand, key=danger, reverse=True)[:3]
 
 
+def same_team(room, a, b):
+    """duo 模式下 N/S、E/W 为队友；solo 模式下所有人都是对手。"""
+    if getattr(room, "mode", "duo") != "duo":
+        return False
+    return TEAM_OF[a] == TEAM_OF[b]
+
+
 def ai_choose_play(room, seat):
     """返回要出的牌（调用方保证轮次与合法性）。"""
     legal = room.legal_plays(seat)
@@ -147,7 +156,7 @@ def ai_choose_play(room, seat):
 
         # 该花色已缺，无法赢下这墩
         winner = winner_after(None)
-        opponent_wins = TEAM_OF[winner] != TEAM_OF[seat]
+        opponent_wins = not same_team(room, winner, seat)
 
         def card_points(card):
             p = 1 if card["s"] == 2 else 0
@@ -176,19 +185,26 @@ def ai_choose_play(room, seat):
 # 房间
 # ---------------------------------------------------------------------------
 class HeartsRoom:
-    """四人红心大战房间：座位 N(0)/E(1)/S(2)/W(3)，E/W 为电脑。"""
+    """四人红心大战房间：duo = 双人组队；solo = 单人 vs 三台电脑。"""
 
-    def __init__(self, delay=0.25):
+    def __init__(self, mode="duo", delay=0.25):
         self.lock = threading.RLock()
         self.clients = []
-        self.players = {1: None, 2: None}  # 颜色 1=N，颜色 2=S
+        self.mode = mode
+        self.human_colors = (1,) if mode == "solo" else (1, 2)
+        self.human_seats = (0,) if mode == "solo" else (0, 2)
+        self.ai_seats = tuple(s for s in (1, 2, 3) if s not in self.human_seats)
+        self.players = {c: None for c in self.human_colors}
         self.delay = delay
         self.reset()
 
     # ---------------- 生命周期 ----------------
     def reset(self):
         self.hands = [[], [], [], []]
-        self.scores = {"NS": 0, "EW": 0}
+        if self.mode == "solo":
+            self.scores = {name: 0 for name in ("N", "E", "S", "W")}
+        else:
+            self.scores = {"NS": 0, "EW": 0}
         self.hand_number = 0
         self.phase = "idle"          # idle / pass / play / over
         self.pass_direction = "left"
@@ -203,10 +219,10 @@ class HeartsRoom:
         self.last_hand_scores = None
         self.over = False
         self.winner = None
-        self.restart_votes = {1: False, 2: False}
+        self.restart_votes = {c: False for c in self.human_colors}
 
     def on_join(self):
-        if all(self.players[i] is not None for i in (1, 2)) and self.phase == "idle":
+        if all(self.players[c] is not None for c in self.human_colors) and self.phase == "idle":
             self.start_game()
 
     def on_disconnect(self, conn):
@@ -216,12 +232,15 @@ class HeartsRoom:
             self.reset()
 
     def start_game(self):
-        self.scores = {"NS": 0, "EW": 0}
+        if self.mode == "solo":
+            self.scores = {name: 0 for name in ("N", "E", "S", "W")}
+        else:
+            self.scores = {"NS": 0, "EW": 0}
         self.hand_number = 0
         self.over = False
         self.winner = None
         self.last_hand_scores = None
-        self.restart_votes = {1: False, 2: False}
+        self.restart_votes = {c: False for c in self.human_colors}
         self.next_hand()
 
     # ---------------- 发牌 / 换牌 ----------------
@@ -246,7 +265,7 @@ class HeartsRoom:
             log(f"[红心] 第 {self.hand_number} 手：不换牌，开始出牌")
         else:
             self.phase = "pass"
-            for seat in (1, 3):
+            for seat in self.ai_seats:
                 self.pending_pass[seat] = ai_choose_pass(self.hands[seat])
                 self.pass_ready[seat] = True
             log(f"[红心] 第 {self.hand_number} 手：换牌方向 {self.pass_direction}")
@@ -377,17 +396,17 @@ class HeartsRoom:
         self.pending_pass[seat] = normalized
         self.pass_ready[seat] = True
         log(f"[红心] 玩家{SEAT_NAMES[seat]} 已选择换牌")
-        if all(self.pass_ready[s] for s in (0, 2)):
+        if all(self.pass_ready[s] for s in self.human_seats):
             self._resolve_pass()
         broadcast_locked(self)
         self._advance_ai()
 
     def handle_restart(self, conn):
-        if conn.color not in (1, 2):
+        if conn.color not in self.human_colors:
             conn.send({"type": "error", "message": "观众不能重新开始"})
             return
-        if any(self.players[i] is None for i in (1, 2)):
-            conn.send({"type": "error", "message": "需要两名玩家都在线"})
+        if any(self.players[c] is None for c in self.human_colors):
+            conn.send({"type": "error", "message": "需要玩家都在线"})
             return
         color = conn.color
         if self.restart_votes[color]:
@@ -397,9 +416,9 @@ class HeartsRoom:
             return
         self.restart_votes[color] = True
         log("[红心] 请求重新开始")
-        if all(self.restart_votes[i] for i in (1, 2)):
+        if all(self.restart_votes[c] for c in self.human_colors):
             self.start_game()
-            log("[红心] 双方确认，新对局开始")
+            log("[红心] 全员确认，新对局开始")
         broadcast_locked(self)
         self._advance_ai()
 
@@ -422,9 +441,32 @@ class HeartsRoom:
             self.turn = (seat + 1) % 4
 
     def _end_hand(self):
+        moon = next((s for s in range(4) if self.hand_points[s] == 26), None)
+        if self.mode == "solo":
+            hand_scores = {}
+            for seat in range(4):
+                name = SEAT_NAMES[seat]
+                if moon is not None:
+                    hand_scores[name] = 0 if seat == moon else 26
+                else:
+                    hand_scores[name] = self.hand_points[seat]
+                self.scores[name] += hand_scores[name]
+            self.last_hand_scores = dict(hand_scores)
+            self.last_hand_scores["moon"] = SEAT_NAMES[moon] if moon is not None else None
+            log("[红心] 第 %d 手结束（单人）：%s" % (self.hand_number, hand_scores))
+            if max(self.scores.values()) >= 100:
+                self.over = True
+                self.phase = "over"
+                low = min(self.scores.values())
+                winners = [name for name, val in self.scores.items() if val == low]
+                self.winner = winners[0] if len(winners) == 1 else None
+                log(f"[红心] 对局结束：{self.scores}，胜者 {self.winner}")
+            else:
+                self.next_hand()
+            return
+
         ns_points = self.hand_points[0] + self.hand_points[2]
         ew_points = self.hand_points[1] + self.hand_points[3]
-        moon = next((s for s in range(4) if self.hand_points[s] == 26), None)
         if moon is not None:
             if TEAM_OF[moon] == "NS":
                 ns_points, ew_points = 0, 26
@@ -452,7 +494,7 @@ class HeartsRoom:
             self.next_hand()
 
     def _advance_ai(self):
-        while self.phase == "play" and not self.over and self.turn in (1, 3):
+        while self.phase == "play" and not self.over and self.turn in self.ai_seats:
             if self.delay:
                 time.sleep(self.delay)
             card = ai_choose_play(self, self.turn)
@@ -473,6 +515,7 @@ class HeartsRoom:
         return {
             "type": "state",
             "game": "hearts",
+            "mode": self.mode,
             "you": seat,
             "seatName": SEAT_NAMES[seat] if seat is not None else None,
             "phase": self.phase,
@@ -492,12 +535,9 @@ class HeartsRoom:
             "over": self.over,
             "winner": self.winner,
             "players": {
-                "N": self.players[1] is not None,
-                "S": self.players[2] is not None,
+                "N": self.players.get(1) is not None,
+                "S": self.players.get(2) is not None,
             },
             "connected": sum(1 for c in self.players.values() if c is not None),
-            "restartVotes": {
-                "1": self.restart_votes[1],
-                "2": self.restart_votes[2],
-            },
+            "restartVotes": {str(c): self.restart_votes[c] for c in self.human_colors},
         }
