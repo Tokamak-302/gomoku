@@ -95,8 +95,8 @@
     <h1>棋类对战</h1>
     <div class="conn" id="conn">连接中…</div>
   </div>
-  <p class="sub">选择同一种玩法后进入对局 · 所有玩法均为 2 人 · 多开窗口即可联机</p>
-  <div class="online">已连接玩家：<b id="online">0/3</b></div>
+  <p class="sub">选择同一种玩法后进入对局 · 对局玩法为 2 人（单人红心选中即开局）· 多开窗口即可联机</p>
+  <div class="online">已连接玩家：<b id="online">0/2</b></div>
   <div class="notice" id="notice"></div>
   <div class="cards">
     <div class="card" id="card-gomoku" data-game="gomoku">
@@ -175,7 +175,7 @@ const allCards = {
   paodekuai: cardPaodekuai, hearts: cardHearts, hearts_solo: cardHeartsSolo
 };
 
-let state = { you: 0, connected: 0, selections: { "1": null, "2": null, "3": null } };
+let state = { you: 0, connected: 0, selections: { "1": null, "2": null } };
 let ws = null;
 let navigating = false;
 
@@ -186,10 +186,10 @@ function setConn(text, cls) {
 
 function updateUI() {
   const s = state;
-  onlineEl.textContent = (s.connected || 0) + "/3";
+  onlineEl.textContent = (s.connected || 0) + "/2";
 
   const mySel = s.you ? s.selections[String(s.you)] : null;
-  const others = [1, 2, 3]
+  const others = [1, 2]
     .filter(function (i) { return i !== s.you; })
     .map(function (i) { return s.selections[String(i)]; })
     .filter(Boolean);
@@ -203,7 +203,7 @@ function updateUI() {
   const n = s.connected || 0;
   let notice = "";
   if (!s.you) {
-    notice = "当前为观众模式（已有三名玩家连接）";
+    notice = "当前为观众模式（大厅最多 2 名玩家选择玩法）";
   } else if (mySel) {
     const need = GAME_NEEDS[mySel] || 2;
     const different = othersUnique.some(function (g) { return g !== mySel; });

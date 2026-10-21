@@ -171,14 +171,14 @@ GAME_NEEDS = {"gomoku": 2, "xiangqi": 2, "paodekuai": 2, "hearts": 2, "hearts_so
 
 
 class LobbyRoom:
-    """选择玩法界面的大厅：最多三名玩家，按玩法所需人数（1/2 人）组局。"""
+    """选择玩法界面的大厅：固定两名玩家，按玩法所需人数（1/2 人）组局。"""
 
     def __init__(self):
         self.lock = threading.RLock()
         self.clients = []
-        self.players = {1: None, 2: None, 3: None}
-        self.selections = {1: None, 2: None, 3: None}
-        self.restart_votes = {1: False, 2: False, 3: False}
+        self.players = {1: None, 2: None}
+        self.selections = {1: None, 2: None}
+        self.restart_votes = {1: False, 2: False}
 
     def state_for(self, conn):
         return {
@@ -189,17 +189,15 @@ class LobbyRoom:
             "selections": {
                 "1": self.selections[1],
                 "2": self.selections[2],
-                "3": self.selections[3],
             },
             "players": {
                 "1": self.players[1] is not None,
                 "2": self.players[2] is not None,
-                "3": self.players[3] is not None,
             },
         }
 
     def handle_select(self, conn, game):
-        if conn.color not in (1, 2, 3):
+        if conn.color not in (1, 2):
             conn.send({"type": "error", "message": "观众不能选择玩法"})
             return
         if game not in (None, "gomoku", "xiangqi", "paodekuai", "hearts", "hearts_solo"):
@@ -215,7 +213,7 @@ class LobbyRoom:
             if need == 1:
                 # 单人玩法：谁选中就立即开始
                 chosen = None
-                for slot in (1, 2, 3):
+                for slot in (1, 2):
                     if self.players[slot] is not None and self.selections[slot] == name:
                         chosen = slot
                         break
@@ -228,7 +226,7 @@ class LobbyRoom:
                             other.send({"type": "notice",
                                          "message": "对局已开始（本轮你未参与）"})
                     log(f"[大厅] {name} 开局（单人）")
-                    self.selections = {1: None, 2: None, 3: None}
+                    self.selections = {1: None, 2: None}
                     broadcast_locked(self)
                     return
                 continue
@@ -243,7 +241,7 @@ class LobbyRoom:
                         client.send({"type": "notice",
                                      "message": "对局已开始（本轮你未参与）"})
                 log(f"[大厅] {name} 开局（{need} 人）")
-                self.selections = {1: None, 2: None, 3: None}
+                self.selections = {1: None, 2: None}
                 broadcast_locked(self)
                 return
 
@@ -686,9 +684,6 @@ def handle_connection(sock, addr):
                 if room.players.get(2) is conn:
                     room.players[2] = None
                     room.restart_votes[2] = False
-                if room.players.get(3) is conn:
-                    room.players[3] = None
-                    room.restart_votes[3] = False
                 if conn.color:
                     selections = getattr(room, "selections", None)
                     if selections is not None:

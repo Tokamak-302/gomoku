@@ -380,20 +380,34 @@ def test_lobby():
     s2 = expect(l2, "lobby_state")
     s1 = expect(l1, "lobby_state")
     assert s1["connected"] == 2 and s2["connected"] == 2
-    assert s1["selections"] == {"1": None, "2": None, "3": None}
+    assert s1["selections"] == {"1": None, "2": None}
+
+    # 大厅最多 2 人：第三名连接成为观众，不能选择玩法
+    l3 = WSClient()
+    l3.send({"type": "join", "game": "lobby"})
+    h3 = expect(l3, "hello")
+    assert h3["color"] == 0, "第三名连接应为观众: %r" % h3
+    expect(l3, "lobby_state")
+    expect(l1, "lobby_state")
+    expect(l2, "lobby_state")
+    l3.send({"type": "select", "game": "gomoku"})
+    expect_error(l3, "观众")
+    l3.close()
+    expect(l1, "lobby_state")
+    expect(l2, "lobby_state")
 
     # 一方选择玩法：另一方也能看到（用于显示「另一位玩家想玩xxx」）
     l1.send({"type": "select", "game": "gomoku"})
     s1 = expect(l1, "lobby_state")
     s2 = expect(l2, "lobby_state")
-    assert s1["selections"] == {"1": "gomoku", "2": None, "3": None}, s1["selections"]
+    assert s1["selections"] == {"1": "gomoku", "2": None}, s1["selections"]
     assert s2["selections"]["1"] == "gomoku"
 
     # 双方选择同一种玩法 → 双方收到 start 消息
     l2.send({"type": "select", "game": "gomoku"})
     s1 = expect(l1, "lobby_state")
     s2 = expect(l2, "lobby_state")
-    assert s1["selections"] == {"1": "gomoku", "2": "gomoku", "3": None}
+    assert s1["selections"] == {"1": "gomoku", "2": "gomoku"}
     st1 = expect(l1, "start")
     st2 = expect(l2, "start")
     assert st1["game"] == "gomoku" and st2["game"] == "gomoku"
