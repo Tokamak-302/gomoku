@@ -93,7 +93,8 @@ const sandbox = {
   WebSocket: FakeWebSocket,
   console: console,
   JSON: JSON, Object: Object, Math: Math, Number: Number, String: String,
-  Array: Array, Set: Set, setTimeout: setTimeout, clearTimeout: clearTimeout
+  Array: Array, Set: Set, setTimeout: setTimeout, clearTimeout: clearTimeout,
+  setInterval: setInterval, clearInterval: clearInterval
 };
 
 vm.runInNewContext(code + "\n;globalThis.__sel = function(){ return selected; };", sandbox, { filename: "xiangqi.html", timeout: 5000 });

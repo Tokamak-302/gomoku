@@ -171,7 +171,7 @@ def test_http_page():
     for page in ("gomoku.html", "xiangqi.html", "paodekuai.html", "hearts.html"):
         with urllib.request.urlopen(BASE_URL + page, timeout=TIMEOUT) as resp:
             assert resp.status == 200, "页面 %s 不可访问" % page
-    print("[1/11] 开始界面与四个游戏页     PASS")
+    print("[1/12] 开始界面与四个游戏页     PASS")
 
 
 def test_join_and_colors():
@@ -192,14 +192,14 @@ def test_join_and_colors():
     assert st1["players"] == {"black": True, "white": True}
     assert st2["you"] == 2 and st1["you"] == 1
     assert sum(sum(row) for row in st1["board"]) == 0, "开局棋盘应为空"
-    print("[2/11] 双客户端连接、黑白分配    PASS")
+    print("[2/12] 双客户端连接、黑白分配    PASS")
     return p1, p2
 
 
 def test_out_of_turn(p2):
     p2.send({"type": "move", "row": 7, "col": 7})  # 白棋抢先落子
     expect_error(p2, "轮")
-    print("[3/11] 非本回合落子被拒绝        PASS")
+    print("[3/12] 非本回合落子被拒绝        PASS")
 
 
 def test_win(p1, p2):
@@ -228,7 +228,7 @@ def test_win(p1, p2):
     cells = {(r, c) for r, c in s1["line"]}
     for i in range(5):
         assert (0, i) in cells, "获胜连线缺少 (0, %d)" % i
-    print("[4/11] 五连胜利判定与连线        PASS")
+    print("[4/12] 五连胜利判定与连线        PASS")
 
 
 def test_undo(p1, p2):
@@ -262,7 +262,7 @@ def test_undo(p1, p2):
     expect(p2, "state")
     assert s1["over"] is True and s1["winner"] == 1, "重新落子后应再次判定黑棋获胜"
     assert s1["undoGhost"] is None, "落子后虚影应清除"
-    print("[5/11] 悔棋（仅限自己的棋）与虚影   PASS")
+    print("[5/12] 悔棋（仅限自己的棋）与虚影   PASS")
 
 
 def test_restart(p1, p2):
@@ -292,7 +292,7 @@ def test_restart(p1, p2):
         assert s["over"] is False and s["current"] == 1 and s["lastMove"] is None
         assert s["restartVotes"] == {"black": False, "white": False}
     assert s1["you"] == 2 and s2["you"] == 1, "重开后黑白应交换"
-    print("[6/11] 双方确认后重开与换边      PASS")
+    print("[6/12] 双方确认后重开与换边      PASS")
 
 
 def test_xiangqi():
@@ -362,7 +362,7 @@ def test_xiangqi():
         assert s["turn"] == 1
     q1.close()
     q2.close()
-    print("[7/11] 象棋联机协议与换边        PASS")
+    print("[7/12] 象棋联机协议与换边        PASS")
 
 
 def test_lobby():
@@ -438,7 +438,7 @@ def test_lobby():
     m1.close()
     m2.close()
 
-    print("[8/11] 大厅选玩法与开局流程      PASS")
+    print("[8/12] 大厅选玩法与开局流程      PASS")
 
 
 def read_states(clients, colors=(1, 2, 3)):
@@ -496,7 +496,7 @@ def test_paodekuai():
 
     k1.close()
     k2.close()
-    print("[9/11] 跑得快联机与出牌流程      PASS")
+    print("[9/12] 跑得快联机与出牌流程      PASS")
 
 
 def read_pair(a, b):
@@ -573,7 +573,7 @@ def test_hearts():
 
     h1.close()
     h2.close()
-    print("[10/11] 红心大战联机与 AI 流程    PASS")
+    print("[10/12] 红心大战联机与 AI 流程    PASS")
 
 
 def test_hearts_solo():
@@ -611,7 +611,55 @@ def test_hearts_solo():
             break
     assert s["phase"] != "idle"
     h.close()
-    print("[11/11] 单人红心大战与 AI 流程    PASS")
+    print("[11/12] 单人红心大战与 AI 流程    PASS")
+
+
+def test_reconnect():
+    # 同一 client_id 断线重连：应接管原座位，而不是变成观众
+    p1 = WSClient()
+    p1.send({"type": "join", "game": "gomoku", "client_id": "cid-A"})
+    assert expect(p1, "hello")["color"] == 1
+    expect(p1, "state")
+
+    p2 = WSClient()
+    p2.send({"type": "join", "game": "gomoku", "client_id": "cid-B"})
+    assert expect(p2, "hello")["color"] == 2
+    expect(p2, "state")
+    expect(p1, "state")
+
+    # 模拟 p1 网络波动后浏览器重连（旧连接尚未被服务端清理）
+    p1b = WSClient()
+    p1b.send({"type": "join", "game": "gomoku", "client_id": "cid-A"})
+    hb = expect(p1b, "hello")
+    assert hb["color"] == 1, "重连应接管原座位而不是观众: %r" % hb
+    sb = expect(p1b, "state")
+    assert sb["you"] == 1
+    expect(p2, "state")
+
+    # 旧连接被关闭后的清理，不应把新连接的座位清掉
+    time.sleep(0.4)
+    p1b.send({"type": "move", "row": 7, "col": 7})
+    sb = None
+    for _ in range(5):
+        st = expect(p1b, "state")
+        if st.get("board") and st["board"][7][7] == 1:
+            sb = st
+            break
+    assert sb is not None, "重连后落子未生效: %r" % (sb,)
+
+    moved = None
+    for _ in range(5):
+        st = expect(p2, "state")
+        if st.get("board") and st["board"][7][7] == 1:
+            moved = st
+            break
+    assert moved is not None, "p2 未收到重连后的落子"
+    assert moved["players"]["black"] is True, \
+        "新连接的座位被旧连接清理误删: %r" % moved["players"]
+
+    p1b.close()
+    p2.close()
+    print("[12/12] 断线重连接管原座位          PASS")
 
 
 def main():
@@ -649,6 +697,7 @@ def main():
         test_paodekuai()
         test_hearts()
         test_hearts_solo()
+        test_reconnect()
     except AssertionError as exc:
         print("\n[FAIL] %s" % exc)
         return 1

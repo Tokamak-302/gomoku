@@ -19,6 +19,7 @@ import socketserver
 import struct
 import sys
 import threading
+import time
 from pathlib import Path
 
 from xiangqi import XiangqiRoom
@@ -95,6 +96,8 @@ class PlayerConn:
         self.color = 0          # 0=观众；1/2 由具体游戏解释
         self.send_lock = threading.Lock()
         self.alive = True
+        self.client_id = None   # 浏览器标签页身份（断线重连时接管原座位）
+        self.last_seen = time.time()  # 最近收到任意帧的时间（心跳用）
 
     def send(self, obj):
         if not self.alive:
@@ -485,8 +488,8 @@ def handle_undo(conn):
     broadcast_locked(room)
 
 
-def join_game(conn, game):
-    """加入指定游戏的房间：按房间座位数分配 1..N 号位，座位满了成为观众。"""
+def join_game(conn, game, client_id=None):
+    """加入房间：优先接管同一 client_id 的旧连接座位（断线重连），其次分配空位。"""
     if conn.room is not None:
         conn.send({"type": "error", "message": "已经加入对局，不能重复加入"})
         return
@@ -496,12 +499,44 @@ def join_game(conn, game):
         return
     with room.lock:
         room.clients.append(conn)
+        conn.client_id = client_id
         conn.color = 0
-        for slot in sorted(room.players):
-            if room.players[slot] is None:
-                conn.color = slot
-                room.players[slot] = conn
-                break
+
+        # 1) 同一标签页重连：接管旧连接占用的座位
+        reclaimed = None
+        if client_id:
+            for slot in sorted(room.players):
+                old = room.players[slot]
+                if old is not None and old is not conn \
+                        and getattr(old, "client_id", None) == client_id:
+                    reclaimed = slot
+                    break
+        if reclaimed is not None:
+            old = room.players[reclaimed]
+            old.alive = False
+            try:
+                old.sock.close()
+            except OSError:
+                pass
+            if old in room.clients:
+                room.clients.remove(old)
+            conn.color = reclaimed
+            room.players[reclaimed] = conn
+            log(f"[重连] {conn.addr[0]} 接管 游戏={game} 颜色={reclaimed}")
+        else:
+            # 2) 顺手清理已标记死亡但仍占座的旧连接
+            for slot in sorted(room.players):
+                old = room.players[slot]
+                if old is not None and not old.alive:
+                    if old in room.clients:
+                        room.clients.remove(old)
+                    room.players[slot] = None
+            # 3) 分配空位（满了就是观众）
+            for slot in sorted(room.players):
+                if room.players[slot] is None:
+                    conn.color = slot
+                    room.players[slot] = conn
+                    break
         conn.room = room
         conn.game = game
         if conn.color and hasattr(room, "on_join"):
@@ -523,7 +558,7 @@ def handle_message(conn, text):
     mtype = msg.get("type")
 
     if mtype == "join":
-        join_game(conn, msg.get("game"))
+        join_game(conn, msg.get("game"), msg.get("client_id"))
         return
 
     room = conn.room
@@ -595,6 +630,7 @@ def frame_loop(sock, conn):
     frag = bytearray()
     while conn.alive:
         opcode, fin, payload = read_frame(sock)
+        conn.last_seen = time.time()
         if opcode == 0x8:  # close
             try:
                 with conn.send_lock:
@@ -628,6 +664,62 @@ def frame_loop(sock, conn):
                 frag = bytearray()
             continue
         raise ConnectionError("不支持的帧类型: %d" % opcode)
+
+
+def release_conn(conn):
+    """连接结束：只释放仍属于自己的座位（已被新连接接管的座位保持不变）。"""
+    conn.alive = False
+    room = conn.room
+    if room is None:
+        return
+    with room.lock:
+        if conn in room.clients:
+            room.clients.remove(conn)
+        released = []
+        for slot in sorted(room.players):
+            if room.players.get(slot) is conn:
+                room.players[slot] = None
+                votes = getattr(room, "restart_votes", None)
+                if votes is not None and slot in votes:
+                    votes[slot] = False
+                released.append(slot)
+        selections = getattr(room, "selections", None)
+        if selections is not None:
+            for slot in released:
+                selections[slot] = None
+        if released and hasattr(room, "on_disconnect"):
+            room.on_disconnect(conn)
+        log(f"[-] 离开 {conn.addr[0]} 游戏={conn.game} 颜色={conn.color}")
+        broadcast_locked(room)
+
+
+def heartbeat_loop(conn):
+    """每 15 秒发一次 WS ping；45 秒内没收到任何帧就判定连接已死并断开。"""
+    try:
+        while conn.alive:
+            time.sleep(15)
+            if not conn.alive:
+                return
+            if time.time() - conn.last_seen > 45:
+                log(f"[心跳] {conn.addr[0]} 超时无响应，断开连接")
+                conn.alive = False
+                try:
+                    conn.sock.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                try:
+                    conn.sock.close()
+                except OSError:
+                    pass
+                return
+            try:
+                with conn.send_lock:
+                    conn.sock.sendall(encode_frame(0x9, b""))
+            except OSError:
+                conn.alive = False
+                return
+    except Exception:
+        return
 
 
 def handle_connection(sock, addr):
@@ -666,32 +758,14 @@ def handle_connection(sock, addr):
                 "Sec-WebSocket-Accept: %s\r\n\r\n" % accept
             ).encode("latin-1"))
 
+            threading.Thread(target=heartbeat_loop, args=(conn,), daemon=True).start()
             frame_loop(sock, conn)
         else:
             serve_http_request(sock, method, path, headers)
     except (ConnectionError, OSError):
         pass
     finally:
-        conn.alive = False
-        room = conn.room
-        if room is not None:
-            with room.lock:
-                if conn in room.clients:
-                    room.clients.remove(conn)
-                if room.players.get(1) is conn:
-                    room.players[1] = None
-                    room.restart_votes[1] = False
-                if room.players.get(2) is conn:
-                    room.players[2] = None
-                    room.restart_votes[2] = False
-                if conn.color:
-                    selections = getattr(room, "selections", None)
-                    if selections is not None:
-                        selections[conn.color] = None
-                if hasattr(room, "on_disconnect"):
-                    room.on_disconnect(conn)
-                log(f"[-] 离开 {addr[0]} 游戏={conn.game} 颜色={conn.color}")
-                broadcast_locked(room)
+        release_conn(conn)
         try:
             sock.close()
         except OSError:

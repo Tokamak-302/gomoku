@@ -84,6 +84,8 @@ function runPage(page) {
     Set: Set,
     setTimeout: setTimeout,
     clearTimeout: clearTimeout,
+    setInterval: setInterval,
+    clearInterval: clearInterval,
     requestAnimationFrame: function (fn) { return setTimeout(fn, 0); }
   };
   sandbox.WebSocket.OPEN = 1;

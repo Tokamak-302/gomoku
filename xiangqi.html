@@ -591,6 +591,34 @@ function flash(text, isError) {
 }
 
 // ------------------------------ WebSocket ------------------------------
+function clientId() {
+  let id = "";
+  try { id = sessionStorage.getItem("dsw_client_id") || ""; } catch (err) { id = ""; }
+  if (!id) {
+    id = "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+    try { sessionStorage.setItem("dsw_client_id", id); } catch (err) { /* 忽略 */ }
+  }
+  return id;
+}
+
+let hbTimer = null;
+let lastMsgAt = 0;
+function startHeartbeat() {
+  stopHeartbeat();
+  lastMsgAt = Date.now();
+  hbTimer = setInterval(function () {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (Date.now() - lastMsgAt > 25000) {
+      try { ws.close(); } catch (err) { /* 忽略 */ }
+      return;
+    }
+    try { ws.send(JSON.stringify({ type: "ping" })); } catch (err) { /* 忽略 */ }
+  }, 10000);
+}
+function stopHeartbeat() {
+  if (hbTimer) { clearInterval(hbTimer); hbTimer = null; }
+}
+
 function wsUrl() {
   const scheme = location.protocol === "https:" ? "wss" : "ws";
   let host = location.host;
@@ -610,12 +638,14 @@ function connect() {
     prevOver = false;
     prevInCheck = false;
     setConn("已连接", "ok");
-    ws.send(JSON.stringify({ type: "join", game: "xiangqi" }));
+    startHeartbeat();
+    ws.send(JSON.stringify({ type: "join", game: "xiangqi", client_id: clientId() }));
   };
 
   ws.onmessage = (evt) => {
     let msg;
     try { msg = JSON.parse(evt.data); } catch (err) { return; }
+    lastMsgAt = Date.now();
     if (msg.type === "state") {
       const wasFirst = firstState;
       const key = msg.lastMove ? JSON.stringify(msg.lastMove) : "";
@@ -670,6 +700,7 @@ function connect() {
   };
 
   ws.onclose = () => {
+    stopHeartbeat();
     setConn("已断开，重连中…", "bad");
     setTimeout(connect, 1200);
   };
